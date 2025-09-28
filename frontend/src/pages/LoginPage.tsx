@@ -6,7 +6,7 @@ const LoginPage = () => {
 
   return (
     <div>
-      <h1>Welcome to Creative Canvas AI</h1>
+      <h1>Welcome to Canvas AI</h1>
       <p>Please sign in to continue</p>
       <button onClick={handleLogin}>Sign In with Google</button>
     </div>

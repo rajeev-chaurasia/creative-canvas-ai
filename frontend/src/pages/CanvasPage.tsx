@@ -1,14 +1,14 @@
 import { useParams } from 'react-router-dom';
+import CanvasEditor from '../components/CanvasEditor';
 
 const CanvasPage = () => {
-  const { projectId } = useParams();
+  const { uuid } = useParams<{ uuid: string }>();
 
-  return (
-    <div>
-      <h1>Canvas for Project {projectId}</h1>
-      {/* The Konva.js canvas will be rendered here */}
-    </div>
-  );
+  if (!uuid) {
+    return <div>Project not found</div>;
+  }
+
+  return <CanvasEditor projectUuid={uuid} />;
 };
 
 export default CanvasPage;

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from jose import JWTError, jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from starlette.responses import RedirectResponse
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
@@ -20,6 +20,7 @@ router = APIRouter(
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
+REFRESH_TOKEN_EXPIRE_DAYS = 7
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
@@ -29,10 +30,17 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=15)
-    to_encode.update({"exp": expire})
+        expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+    to_encode.update({"exp": expire, "type": "access"})
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
+def create_refresh_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    to_encode.update({"exp": expire, "type": "refresh"})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -69,11 +77,12 @@ async def auth_google_callback(code: str, db: Session = Depends(get_db)):
 
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
-        data={"sub": user.email}, expires_delta=access_token_expires
+        data={"sub": user.email, "user_id": user.id}, expires_delta=access_token_expires
     )
+    refresh_token = create_refresh_token(data={"sub": user.email, "user_id": user.id})
     
-    # Redirect to the frontend with the token
-    return RedirectResponse(url=f"http://localhost:5173/auth/callback?token={access_token}")
+    # Redirect to the frontend with both tokens
+    return RedirectResponse(url=f"http://localhost:5173/auth/callback?token={access_token}&refresh_token={refresh_token}")
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
@@ -82,14 +91,81 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
+        if not SECRET_KEY:
+            print("ERROR: SECRET_KEY is not set!")
+            raise credentials_exception
+        
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
         if email is None:
             raise credentials_exception
         token_data = schemas.TokenData(email=email)
-    except JWTError:
+    except JWTError as e:
+        print(f"JWT Error: {e}")
         raise credentials_exception
     user = crud.get_user_by_email(db, email=token_data.email)
     if user is None:
         raise credentials_exception
     return user
+
+@router.post("/refresh")
+async def refresh_access_token(refresh_token: str, db: Session = Depends(get_db)):
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate refresh token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        if not SECRET_KEY:
+            raise credentials_exception
+        
+        payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
+        
+        # Verify it's a refresh token
+        token_type: str = payload.get("type")
+        if token_type != "refresh":
+            raise credentials_exception
+        
+        email: str = payload.get("sub")
+        user_id = payload.get("user_id")
+        
+        # If refresh token doesn't have user_id, force re-login
+        if email is None or user_id is None:
+            print(f"⚠️  Old refresh token detected for {email}, forcing re-login")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token format outdated. Please log in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+            
+    except JWTError as e:
+        print(f"JWT Error during refresh: {e}")
+        raise credentials_exception
+    
+    # Verify user still exists
+    user = crud.get_user_by_email(db, email=email)
+    if user is None:
+        raise credentials_exception
+    
+    # Create new access token with user_id
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    new_access_token = create_access_token(
+        data={"sub": user.email, "user_id": user.id}, expires_delta=access_token_expires
+    )
+    
+    print(f"🔄 Refreshed token for user: {user.email} (ID: {user.id})")
+    print(f"🔑 New token includes user_id: {user.id}")
+    
+    return {
+        "access_token": new_access_token,
+        "token_type": "bearer",
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60  # in seconds
+    }
+
+@router.post("/logout")
+async def logout():
+    """
+    Logout endpoint - client should clear tokens from localStorage
+    This is a placeholder endpoint for consistency
+    """
+    return {"message": "Logged out successfully. Clear your tokens from localStorage."}
