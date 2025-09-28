@@ -296,9 +296,10 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   const handleManualSave = async () => {
     setIsSaving(true);
     try {
+      console.log('💾 Manual save - preserving title, only updating canvas_state');
       await apiClient.put(`/api/projects/${projectUuid}`, {
-        title: 'My Project',
         canvas_state: { objects }
+        // Don't send title - it shouldn't change when saving canvas
       });
       setLastSaved(new Date());
       console.log('✅ Canvas manually saved');
@@ -314,14 +315,15 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   useEffect(() => {
     const saveCanvas = async () => {
       try {
+        console.log('💾 Auto-save - preserving title, only updating canvas_state');
         await apiClient.put(`/api/projects/${projectUuid}`, {
-          title: 'My Project',
           canvas_state: { objects }
+          // Don't send title - it shouldn't change when saving canvas
         });
         setLastSaved(new Date());
-        console.log('Canvas auto-saved');
+        console.log('✅ Canvas auto-saved');
       } catch (error) {
-        console.error('Failed to save canvas:', error);
+        console.error('❌ Failed to save canvas:', error);
       }
     };
 
