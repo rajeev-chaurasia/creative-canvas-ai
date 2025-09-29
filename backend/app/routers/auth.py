@@ -169,3 +169,13 @@ async def logout():
     This is a placeholder endpoint for consistency
     """
     return {"message": "Logged out successfully. Clear your tokens from localStorage."}
+
+
+@router.get("/me", response_model=schemas.User)
+async def read_current_user(current_user: models.User = Depends(get_current_user)):
+    """
+    Returns the currently authenticated user's profile.
+    Frontend should call this with Authorization: Bearer <access_token>
+    """
+    # The Pydantic response model (schemas.User) will be populated via from_attributes
+    return current_user

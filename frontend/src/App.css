@@ -51,3 +51,26 @@ body {
 .read-the-docs {
   color: #888;
 }
+
+.profile-dropdown {
+  transition: opacity 120ms ease, transform 120ms ease;
+  opacity: 0;
+  transform: translateY(-6px);
+  display: none;
+}
+
+.profile-menu-root.open .profile-dropdown {
+  display: block !important;
+  transform: translateY(0);
+  opacity: 1;
+}
+
+/* Ensure SVG icons inside profile button are visible regardless of global styles */
+.profile-icon-glyph {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  line-height: 18px;
+  text-align: center;
+  font-size: 14px;
+}
