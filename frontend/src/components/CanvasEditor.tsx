@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Stage, Layer, Line, Rect, Circle, Text as KonvaText, Transformer } from 'react-konva';
+import { Stage, Layer, Line, Rect, Circle, Text as KonvaText, Transformer, Label, Tag } from 'react-konva';
 import Konva from 'konva';
 import { useSocket } from '../hooks/useSocket';
 import apiClient from '../services/api';
@@ -1140,25 +1140,50 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                 />
               )}
 
-              {Object.entries(cursors).map(([userId, cursor]) => (
-                <g key={userId}>
-                  <Circle
-                    x={cursor.x}
-                    y={cursor.y}
-                    radius={8}
-                    fill={cursor.color}
-                    opacity={0.7}
-                  />
-                  <KonvaText
-                    x={cursor.x + 12}
-                    y={cursor.y - 8}
-                    text={`${cursor.name} (Remote)`}
-                    fontSize={12}
-                    fill={cursor.color}
-                    fontStyle="bold"
-                  />
-                </g>
-              ))}
+              {Object.entries(cursors).map(([userId, cursor]) => {
+                // Keep cursor marker and label readable regardless of canvas scale.
+                // Konva will multiply node sizes by stage scale, so we divide by stageScale
+                // to keep the on-screen size roughly constant.
+                const scale = Math.max(0.0001, stageScale || 1);
+                const baseRadius = 8; // desired on-screen radius in px
+                const baseFont = 12; // desired on-screen font size in px
+                const offsetX = 12; // desired on-screen offset for label
+                const offsetY = 8; // desired on-screen vertical offset for label
+
+                const radius = Math.max(2, baseRadius / scale);
+                const fontSize = Math.max(8, baseFont / scale);
+                const labelX = cursor.x + offsetX / scale;
+                const labelY = cursor.y - offsetY / scale;
+
+                const labelPaddingY = 4 / scale;
+                const maxLabelWidth = 160 / scale; // max on-screen width in px
+                return (
+                  <g key={userId}>
+                    <Circle
+                      x={cursor.x}
+                      y={cursor.y}
+                      radius={radius}
+                      fill={cursor.color}
+                      opacity={0.7}
+                    />
+                    <Label x={labelX} y={labelY}>
+                      <Tag
+                        fill={'rgba(0,0,0,0.6)'}
+                        cornerRadius={4 / scale}
+                        stroke={'rgba(255,255,255,0.04)'}
+                      />
+                      <KonvaText
+                        text={`${cursor.name} (Remote)`}
+                        fontSize={fontSize}
+                        fill={'#fff'}
+                        padding={labelPaddingY}
+                        width={Math.max(40 / scale, maxLabelWidth)}
+                        ellipsis
+                      />
+                    </Label>
+                  </g>
+                );
+              })}
 
               <Transformer
                 ref={transformerRef}
