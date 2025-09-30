@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
 import os
@@ -6,23 +6,14 @@ import base64
 import io
 import json
 import requests
+from PIL import Image
 
-# Pillow for image processing
-try:
-    from PIL import Image
-except ImportError:
-    # Handle missing PIL
-    raise ImportError("Pillow is not installed. Please run 'pip install pillow'")
-
-# Import app-specific dependencies
 from ..database import get_db
 from .. import models
 from .auth import get_current_user
 
-# Vertex AI / Gemini
 try:
     from google.cloud import aiplatform
-    # Import GenerationConfig for reliable JSON output
     from vertexai.generative_models import GenerativeModel, Part, GenerationConfig
     _VERTEX_AVAILABLE = True
 except ImportError:
@@ -54,10 +45,9 @@ def _read_image_bytes(upload: UploadFile) -> bytes:
 
 
 def _downscale_image(image_bytes: bytes, max_dim: int = 1024) -> tuple[bytes, str]:
-    """Downscale image to max_dim, convert to JPEG for analysis."""
     try:
         im = Image.open(io.BytesIO(image_bytes))
-        im = im.convert("RGB") # Convert to RGB (removes alpha) for JPEG
+        im = im.convert("RGB")
         w, h = im.size
         scale = min(1.0, float(max_dim) / float(max(w, h)))
         if scale < 1.0:
@@ -70,37 +60,23 @@ def _downscale_image(image_bytes: bytes, max_dim: int = 1024) -> tuple[bytes, st
 
 
 def _call_gemini_vision(image_bytes: bytes, mime_type: str, prompt: str) -> Dict[str, Any]:
-    """(Reliable) Call Gemini with image and prompt, return parsed JSON."""
     _ensure_vertex_initialized()
     try:
         model = GenerativeModel("gemini-2.5-flash")
         img_part = Part.from_data(mime_type=mime_type, data=image_bytes)
-        
-        # This is the key: Force the model to output JSON
         config = GenerationConfig(response_mime_type="application/json")
-        
         resp = model.generate_content([img_part, prompt], generation_config=config)
-        
-        # Now resp.text is a guaranteed JSON string
         return json.loads(resp.text)
-        
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Gemini API or JSON parse failed: {e}")
 
 def _call_gemini_text(prompt: str) -> Dict[str, Any]:
-    """(Reliable) Call Gemini with text and prompt, return parsed JSON."""
     _ensure_vertex_initialized()
     try:
         model = GenerativeModel("gemini-2.5-flash")
-        
-        # This is the key: Force the model to output JSON
         config = GenerationConfig(response_mime_type="application/json")
-        
         resp = model.generate_content(prompt, generation_config=config)
-        
-        # Now resp.text is a guaranteed JSON string
         return json.loads(resp.text)
-        
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Gemini API or JSON parse failed: {e}")
 
@@ -129,15 +105,12 @@ async def analyze_asset(
     result = _call_gemini_vision(down_bytes, mime_type, prompt)
     
     try:
-        # Still validate the *contents* of the JSON
         if not all(key in result for key in ["description", "keywords", "alt_text"]):
             raise ValueError("Missing required fields in response")
         if not isinstance(result["keywords"], list):
             raise ValueError("Keywords must be an array")
-            
         return result
     except Exception as e:
-        # This now only catches our validation errors
         raise HTTPException(status_code=502, detail=f"AI response format invalid: {e}")
 
 
@@ -168,7 +141,6 @@ async def analyze_canvas(
             raise ValueError("Missing required fields in response")
         if not isinstance(result["keywords"], list):
             raise ValueError("Keywords must be an array")
-            
         return result
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI response format invalid: {e}")
@@ -199,7 +171,6 @@ async def generate_color_palette(
         if not isinstance(colors, list) or len(colors) < 5:
             raise ValueError("Invalid colors array in response")
         
-        # Validate hex color format
         for color in colors:
             if not isinstance(color, str) or not color.startswith("#") or not (len(color) == 7 or len(color) == 4):
                 raise ValueError(f"Invalid hex color format: {color}")
@@ -212,12 +183,10 @@ async def generate_color_palette(
 # USER STORY 3.3: AI Asset Suggestions
 @router.post("/asset-suggestions")
 async def get_asset_suggestions(
-    # This endpoint now correctly accepts a simple list of keywords from the body
     request: Dict[str, List[str]], 
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Find similar stock images using AI-generated keywords"""
     keywords = request.get("keywords", [])
     if not keywords or len(keywords) == 0:
         raise HTTPException(status_code=400, detail="Keywords are required")
@@ -240,7 +209,7 @@ async def get_asset_suggestions(
             timeout=10
         )
         
-        response.raise_for_status() # Raise an exception for 4xx/5xx errors
+        response.raise_for_status()
         
         data = response.json()
         photos = data.get("photos", [])
@@ -286,7 +255,6 @@ async def generate_text(
     if text_type not in prompts:
         raise HTTPException(status_code=400, detail="Invalid text type. Use: titles, brief, or social_media")
     
-    # Use the reliable text-only helper
     return _call_gemini_text(prompts[text_type])
 
 
@@ -316,14 +284,12 @@ async def create_smart_groups(
         '{"groups": {"Group Name 1": ["asset_id_1", "asset_id_2"], "Group Name 2": ["asset_id_3"]}}'
     )
     
-    # Use the reliable text-only helper
     result = _call_gemini_text(prompt)
     
     try:
         groups = result.get("groups", {})
         if not isinstance(groups, dict):
             raise ValueError("Groups must be a dictionary")
-        
         return {"groups": groups}
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI response format invalid: {e}")
