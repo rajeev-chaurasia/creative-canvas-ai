@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import apiClient from '../services/api';
+import './DashboardPage.css';
 
 interface Project {
   id: number;
@@ -113,58 +114,18 @@ const DashboardPage = () => {
   };
 
   return (
-    <div style={{ 
-      minHeight: '100vh', 
-      backgroundColor: '#1e1e1e',
-      padding: '40px 5%', // Percentage padding for better responsiveness
-      maxWidth: '1600px', // Max width for very large screens
-      margin: '0 auto' // Center on large screens
-    }}>
+    <div className="dashboard-root">
       {/* Header Section */}
-      <div style={{ marginBottom: '48px' }}>
-        <h1 style={{ 
-          color: '#e1e1e1', 
-          fontSize: '32px', 
-          fontWeight: 600,
-          marginBottom: '8px',
-          letterSpacing: '0.5px'
-        }}>
-          Your Projects
-        </h1>
-        <p style={{ color: '#888', fontSize: '15px', margin: 0 }}>
-          Create and manage your design projects
-        </p>
+      <div className="dashboard-header">
+        <h1 className="dashboard-title">Your Projects</h1>
+        <p className="dashboard-subtitle">Create and manage your design projects</p>
       </div>
 
       {/* Create New Project Card */}
       <div style={{ marginBottom: '40px' }}>
         <button 
           onClick={() => setShowCreateModal(true)}
-          style={{
-            width: '100%',
-            maxWidth: '600px',
-            padding: '24px',
-            backgroundColor: '#2d2d30',
-            border: '2px dashed #3e3e42',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '12px',
-            transition: 'all 0.2s ease',
-            color: '#888'
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = '#007acc';
-            e.currentTarget.style.backgroundColor = '#252526';
-            e.currentTarget.style.color = '#007acc';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = '#3e3e42';
-            e.currentTarget.style.backgroundColor = '#2d2d30';
-            e.currentTarget.style.color = '#888';
-          }}
+          className="create-project-card"
         >
           <span style={{ fontSize: '24px' }}>+</span>
           <span style={{ fontSize: '15px', fontWeight: 500 }}>Create New Project</span>
@@ -174,234 +135,71 @@ const DashboardPage = () => {
       {/* My Projects Section */}
       {ownedProjects.length > 0 && (
         <div style={{ marginBottom: '48px' }}>
-          <h2 style={{ 
-            color: '#e1e1e1', 
-            fontSize: '20px', 
-            fontWeight: 600,
-            marginBottom: '20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            📁 My Projects
-          </h2>
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', 
-            gap: '24px'
-          }}>
+          <h2 style={{ color: '#e1e1e1', fontSize: '20px', fontWeight: 600, marginBottom: '20px' }}>📁 My Projects</h2>
+          <div className="projects-grid">
             {ownedProjects.map((project) => (
-              <div
-                key={project.uuid} 
-              style={{
-                backgroundColor: '#2d2d30',
-                borderRadius: '8px',
-                border: '1px solid #3e3e42',
-                overflow: 'hidden',
-                transition: 'all 0.2s ease',
-                position: 'relative'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = '#007acc';
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = '#3e3e42';
-                e.currentTarget.style.transform = 'translateY(0)';
-                e.currentTarget.style.boxShadow = 'none';
-              }}
-            >
-              {/* Canvas Preview */}
-              <Link to={`/canvas/${project.uuid}`} style={{ textDecoration: 'none' }}>
-                <div style={{
-                  width: '100%',
-                  height: '180px',
-                  backgroundColor: '#1e1e1e',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderBottom: '1px solid #3e3e42',
-                  position: 'relative'
-                }}>
-                  {/* Simple preview - will enhance later */}
-                  <span style={{ fontSize: '48px', opacity: 0.3 }}>🎨</span>
-                  <div style={{
-                    position: 'absolute',
-                    bottom: '8px',
-                    right: '8px',
-                    backgroundColor: 'rgba(0,0,0,0.7)',
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    color: '#888'
-                  }}>
-                    Click to open
+              <div key={project.uuid} className="project-card">
+                {/* Canvas Preview */}
+                <Link to={`/canvas/${project.uuid}`} style={{ textDecoration: 'none' }}>
+                  <div className="project-preview">
+                    <span style={{ fontSize: '48px', opacity: 0.18 }}>🎨</span>
+                    <div className="preview-open-label">Click to open</div>
                   </div>
-                </div>
-              </Link>
+                </Link>
 
-              {/* Project Info */}
-              <div style={{ padding: '20px' }}>
-                {/* Title - Editable */}
-                {editingProject === project.uuid ? (
-                  <div style={{ marginBottom: '12px' }}>
-                    <input
-                      type="text"
-                      value={editingName}
-                      onChange={(e) => setEditingName(e.target.value)}
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') handleRenameProject(project.uuid);
-                        if (e.key === 'Escape') {
-                          setEditingProject(null);
-                          setEditingName('');
-                        }
-                      }}
-                      autoFocus
-                      style={{
-                        width: '100%',
-                        backgroundColor: '#1e1e1e',
-                        border: '1px solid #007acc',
-                        borderRadius: '4px',
-                        padding: '6px 8px',
-                        color: '#e1e1e1',
-                        fontSize: '16px',
-                        fontWeight: 600
-                      }}
-                    />
-                    <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                      <button
-                        onClick={() => handleRenameProject(project.uuid)}
-                        style={{
-                          padding: '4px 12px',
-                          backgroundColor: '#007acc',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: '3px',
-                          cursor: 'pointer',
-                          fontSize: '12px'
+                {/* Project Info */}
+                <div className="project-body">
+                  {/* Title - Editable */}
+                  {editingProject === project.uuid ? (
+                    <div style={{ marginBottom: '12px' }}>
+                      <input
+                        type="text"
+                        value={editingName}
+                        onChange={(e) => setEditingName(e.target.value)}
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter') handleRenameProject(project.uuid);
+                          if (e.key === 'Escape') {
+                            setEditingProject(null);
+                            setEditingName('');
+                          }
                         }}
-                      >
-                        Save
-                      </button>
-                      <button
-                        onClick={() => {
-                          setEditingProject(null);
-                          setEditingName('');
-                        }}
+                        autoFocus
                         style={{
-                          padding: '4px 12px',
-                          backgroundColor: '#3e3e42',
+                          width: '100%',
+                          backgroundColor: '#0f1535',
+                          border: '1px solid #00d4ff',
+                          borderRadius: '6px',
+                          padding: '8px 10px',
                           color: '#e1e1e1',
-                          border: 'none',
-                          borderRadius: '3px',
-                          cursor: 'pointer',
-                          fontSize: '12px'
+                          fontSize: '16px',
+                          fontWeight: 700
                         }}
-                      >
-                        Cancel
-                      </button>
+                      />
+                      <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                        <button onClick={() => handleRenameProject(project.uuid)} className="btn-primary">Save</button>
+                        <button onClick={() => { setEditingProject(null); setEditingName(''); }} className="btn-danger">Cancel</button>
+                      </div>
                     </div>
+                  ) : (
+                    <h2 onClick={() => { setEditingProject(project.uuid); setEditingName(project.title); }} className="project-title" title="Click to rename">
+                      {project.title}
+                    </h2>
+                  )}
+
+                  {/* Dates */}
+                  <div className="project-meta">
+                    <div>📅 Created: {formatDate(project.created_at)}</div>
+                    <div>🔄 Modified: {formatDate(project.updated_at)}</div>
                   </div>
-                ) : (
-                  <h2 
-                    onClick={() => {
-                      setEditingProject(project.uuid);
-                      setEditingName(project.title);
-                    }}
-                    style={{ 
-                      color: '#e1e1e1', 
-                      fontSize: '16px', 
-                      fontWeight: 600,
-                      marginBottom: '12px',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      cursor: 'pointer',
-                      padding: '4px 0',
-                      borderRadius: '3px'
-                    }}
-                    title="Click to rename"
-                  >
-                    {project.title}
-                  </h2>
-                )}
 
-                {/* Dates */}
-                <div style={{ marginBottom: '16px' }}>
-                  <p style={{ 
-                    color: '#888', 
-                    fontSize: '12px', 
-                    margin: '0 0 4px 0',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}>
-                    <span>📅</span>
-                    <span>Created: {formatDate(project.created_at)}</span>
-                  </p>
-                  <p style={{ 
-                    color: '#888', 
-                    fontSize: '12px', 
-                    margin: 0,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}>
-                    <span>🔄</span>
-                    <span>Modified: {formatDate(project.updated_at)}</span>
-                  </p>
-                </div>
-
-                {/* Actions */}
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <Link 
-                    to={`/canvas/${project.uuid}`}
-                    style={{
-                      flex: 1,
-                      padding: '8px',
-                      backgroundColor: '#007acc',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                      fontWeight: 500,
-                      textAlign: 'center',
-                      textDecoration: 'none',
-                      display: 'block'
-                    }}
-                  >
-                    Open
-                  </Link>
-                  <button
-                    onClick={() => handleDeleteProject(project.uuid, project.title)}
-                    style={{
-                      padding: '8px 12px',
-                      backgroundColor: 'transparent',
-                      color: '#f44336',
-                      border: '1px solid #f44336',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                      fontWeight: 500,
-                      transition: 'all 0.2s'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = '#f44336';
-                      e.currentTarget.style.color = 'white';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = 'transparent';
-                      e.currentTarget.style.color = '#f44336';
-                    }}
-                  >
-                    Delete
-                  </button>
+                  {/* Actions */}
+                  <div className="actions-row">
+                    <Link to={`/canvas/${project.uuid}`} className="btn-primary">Open</Link>
+                    <button onClick={() => handleDeleteProject(project.uuid, project.title)} className="btn-danger">Delete</button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            ))}
           </div>
         </div>
       )}

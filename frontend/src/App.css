@@ -74,3 +74,54 @@ body {
   text-align: center;
   font-size: 14px;
 }
+
+/* Application Navigation Bar */
+.app-nav {
+  width: 100%;
+  background: linear-gradient(90deg, #0f1535 0%, #1a1f3a 100%);
+  padding: 10px 5%;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  box-sizing: border-box;
+  z-index: 50;
+}
+
+.app-nav-inner {
+  max-width: 1600px;
+  margin: 0 auto;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.app-brand {
+  font-weight: 700;
+  color: #eaeaea;
+  font-size: 18px;
+}
+
+.profile-button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg,#7a57ff,#5cc1ff);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+}
+
+.profile-dropdown {
+  transition: opacity 120ms ease, transform 120ms ease;
+  opacity: 0;
+  transform: translateY(-6px);
+  display: none;
+}
+
+.profile-menu-root.open .profile-dropdown {
+  display: block !important;
+  transform: translateY(0);
+  opacity: 1;
+}

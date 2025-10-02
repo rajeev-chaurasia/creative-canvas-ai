@@ -1,14 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Stage, Layer, Line, Rect, Circle, Text as KonvaText, Transformer, Label, Tag } from 'react-konva';
+import { Stage, Layer, Line, Rect, Circle, Text as KonvaText, Transformer, Label, Tag, Image as KonvaImage, Group } from 'react-konva';
 import Konva from 'konva';
 import { useSocket } from '../hooks/useSocket';
 import apiClient from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import ShareModal from './ShareModal';
+import './CanvasEditor.css';
 
 interface CanvasObject {
   id: string;
-  type: 'line' | 'rect' | 'circle' | 'text';
+  type: 'line' | 'rect' | 'circle' | 'text' | 'image';
   x?: number;
   y?: number;
   points?: number[];
@@ -16,6 +17,7 @@ interface CanvasObject {
   height?: number;
   radius?: number;
   text?: string;
+  fontSize?: number; // For text
   fill?: string;
   stroke?: string;
   strokeWidth?: number;
@@ -23,6 +25,13 @@ interface CanvasObject {
   scaleX?: number;
   scaleY?: number;
   globalCompositeOperation?: string; // For eraser
+  imageSrc?: string; // For images
+  cropX?: number; // For crop
+  cropY?: number;
+  cropWidth?: number;
+  cropHeight?: number;
+  originalWidth?: number;
+  originalHeight?: number;
 }
 
 interface CanvasEditorProps {
@@ -42,43 +51,11 @@ const ToolButton = ({ active, onClick, icon, label, shortcut, disabled }: {
     onClick={onClick}
     disabled={disabled}
     title={`${label}${shortcut ? ` (${shortcut})` : ''}`}
-    style={{ 
-      width: '48px',
-      height: '48px',
-      backgroundColor: active ? '#007acc' : 'transparent',
-      color: disabled ? '#666666' : (active ? 'white' : '#cccccc'),
-      border: 'none',
-      borderRadius: '6px',
-      cursor: disabled ? 'not-allowed' : 'pointer',
-      fontSize: '20px',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      transition: 'all 0.2s ease',
-      fontWeight: active ? 'bold' : 'normal',
-      position: 'relative',
-      opacity: disabled ? 0.5 : 1
-    }}
-    onMouseEnter={(e) => {
-      if (!active) {
-        e.currentTarget.style.backgroundColor = '#3e3e42';
-      }
-    }}
-    onMouseLeave={(e) => {
-      if (!active) {
-        e.currentTarget.style.backgroundColor = 'transparent';
-      }
-    }}
+    className={`tool-button ${active ? 'active' : ''} ${disabled ? 'disabled' : ''}`}
   >
     {icon}
     {shortcut && (
-      <span style={{
-        position: 'absolute',
-        bottom: '2px',
-        right: '4px',
-        fontSize: '8px',
-        opacity: 0.5
-      }}>
+      <span className="tool-shortcut">
         {shortcut}
       </span>
     )}
@@ -86,7 +63,7 @@ const ToolButton = ({ active, onClick, icon, label, shortcut, disabled }: {
 );
 
 const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
-  const [tool, setTool] = useState<'select' | 'pen' | 'eraser' | 'rect' | 'circle' | 'text'>('select');
+  const [tool, setTool] = useState<'select'|'pen'|'eraser'|'rect'|'circle'|'text'|'fill'>('select');
   const [objects, setObjects] = useState<CanvasObject[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -109,7 +86,8 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   // Properties
   const [fillColor, setFillColor] = useState('#000000');
   const [strokeColor, setStrokeColor] = useState('#000000');
-  const [strokeWidth, setStrokeWidth] = useState(3);
+  const [strokeWidth, setStrokeWidth] = useState(2);
+  const [fontSize, setFontSize] = useState(20);
 
   // Text editing state
   const [editingText, setEditingText] = useState<{
@@ -120,10 +98,26 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     fontSize: number;
   } | null>(null);
 
+  // Zoom helpers
+  const zoomIn = () => setStageScale(s => Math.min(5, s * 1.2));
+  const zoomOut = () => setStageScale(s => Math.max(0.1, s / 1.2));
+  const resetZoom = () => { 
+    setStageScale(1); 
+    setStagePos({ x: 0, y: 0 }); 
+  };
+
+  // Predefined color palette
+  const colorPalette = [
+    '#000000', '#FFFFFF', '#FF6B6B', '#FFA500', '#FFD700',
+    '#4ECDC4', '#45B7D1', '#7B68EE', '#FF69B4', '#20C997'
+  ];
+
   const stageRef = useRef<Konva.Stage>(null);
   const transformerRef = useRef<Konva.Transformer>(null);
+  const cropTransformerRef = useRef<Konva.Transformer>(null);
   const layerRef = useRef<Konva.Layer>(null);
   const textEditRef = useRef<HTMLTextAreaElement>(null);
+  const cropRectRef = useRef<Konva.Rect>(null);
   
   const socket = useSocket(projectUuid);
   const navigate = useNavigate();
@@ -479,6 +473,24 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     transformerRef.current.getLayer()?.batchDraw();
   }, [selectedIds, userRole]);
 
+  // Update crop transformer when crop rect exists
+  useEffect(() => {
+    if (!cropTransformerRef.current || !layerRef.current) return;
+    const rectNode = cropRectRef.current;
+    if (rectNode) {
+      cropTransformerRef.current.nodes([rectNode]);
+      cropTransformerRef.current.getLayer()?.batchDraw();
+    } else {
+      cropTransformerRef.current.nodes([]);
+      cropTransformerRef.current.getLayer()?.batchDraw();
+    }
+  }, [/* re-run when crop rect changes, we update ref directly */]);
+
+  // Crop UI state
+  const [cropMode, setCropMode] = useState(false);
+  const [cropRect, setCropRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [imageLoading, setImageLoading] = useState<Record<string, boolean>>({});
+
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
     // Close text editing if clicking outside
     if (editingText) {
@@ -557,6 +569,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         y: pos.y,
         text: 'Double-click to edit',
         fill: fillColor,
+        fontSize: fontSize,
         strokeWidth: 0,
       };
       const updated = [...objects, newText];
@@ -577,10 +590,47 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             x: screenPos.x,
             y: screenPos.y,
             text: '',
-            fontSize: 20
+            fontSize: fontSize
           });
         }
       }, 50);
+    }
+
+    // Fill tool: click on a shape to fill it with current fill color
+    if (tool === 'fill') {
+      if (userRole === 'viewer') return; // View-only mode
+      
+      // Get the pointer position on the stage (screen coords)
+      const pointerPos = stage.getPointerPosition();
+      if (!pointerPos) return;
+      
+      // Get intersecting shape at click position
+      const clicked = layerRef.current?.getIntersection(pointerPos);
+      if (clicked && clicked.id()) {
+        const clickedId = clicked.id();
+        const objIndex = objects.findIndex(obj => obj.id === clickedId);
+        
+        if (objIndex !== -1) {
+          // For lines/pen strokes: change stroke color instead of fill
+          if (objects[objIndex].type === 'line') {
+            const updated = objects.map((obj, idx) => 
+              idx === objIndex ? { ...obj, stroke: fillColor } : obj
+            );
+            setObjects(updated);
+            saveToHistory(updated);
+            broadcastUpdate('edit', undefined, clickedId);
+          } else {
+            // For shapes: apply fill color
+            const updated = objects.map((obj, idx) => 
+              idx === objIndex ? { ...obj, fill: fillColor } : obj
+            );
+            setObjects(updated);
+            saveToHistory(updated);
+            broadcastUpdate('edit', undefined, clickedId);
+          }
+        }
+      }
+      return;
     }
   };
 
@@ -671,25 +721,24 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     const textObj = objects.find(obj => obj.id === id && obj.type === 'text');
     if (!textObj || !stageRef.current) return;
 
-    // Calculate screen position
-    const node = layerRef.current?.findOne(`#${id}`);
-    if (!node) return;
-
-    const transform = node.getAbsoluteTransform();
-    const screenPos = transform.point({ x: 0, y: 0 });
+    // Calculate screen position from canvas coordinates
+    const x = (textObj.x || 0) * stageScale + stagePos.x;
+    const y = (textObj.y || 0) * stageScale + stagePos.y;
 
     setEditingText({
       id,
-      x: screenPos.x,
-      y: screenPos.y,
+      x: x + 4,
+      y: y + 4,
       text: textObj.text || '',
       fontSize: 20
     });
 
     // Focus textarea after render
     setTimeout(() => {
-      textEditRef.current?.focus();
-      textEditRef.current?.select();
+      if (textEditRef.current) {
+        textEditRef.current.focus();
+        textEditRef.current.select();
+      }
     }, 10);
   };
 
@@ -707,6 +756,192 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     setObjects(updated);
     saveToHistory(updated);
     setEditingText(null);
+  };
+
+  // Image upload handler
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (userRole === 'viewer' || !e.target.files?.[0]) return;
+    
+    const file = e.target.files[0];
+    const reader = new FileReader();
+    
+    reader.onload = (event) => {
+      const imageSrc = event.target?.result as string;
+      const id = `image-${Date.now()}`;
+
+    // Create an HTMLImageElement to read natural size and wait for load
+  const img = new window.Image();
+  img.src = imageSrc;
+  // cache the HTMLImage so Konva can reuse it
+  imageCache.current[imageSrc] = img;
+  // mark loading for the new image id
+  setImageLoading(l => ({ ...l, [id]: true }));
+
+  img.onload = () => {
+        // Compute a good default size while preserving aspect ratio
+        const maxWidth = Math.max(200, Math.min(800, canvasSize.width * 0.6));
+        const maxHeight = Math.max(160, Math.min(800, canvasSize.height * 0.6));
+
+  let width = img.naturalWidth;
+  let height = img.naturalHeight;
+
+        const widthRatio = width / maxWidth;
+        const heightRatio = height / maxHeight;
+        const maxRatio = Math.max(widthRatio, heightRatio, 1);
+
+        width = Math.round(width / maxRatio);
+        height = Math.round(height / maxRatio);
+
+        // Center the image in the visible canvas area
+        const x = ((canvasSize.width / (stageScale || 1)) / 2) - (width / 2);
+        const y = ((canvasSize.height / (stageScale || 1)) / 2) - (height / 2);
+
+        const newImage: CanvasObject = {
+          id,
+          type: 'image',
+          x,
+          y,
+          width,
+          height,
+          imageSrc,
+          originalWidth: img.naturalWidth,
+          originalHeight: img.naturalHeight,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0
+        };
+
+        const updated = [...objects, newImage];
+        setObjects(updated);
+        saveToHistory(updated);
+        broadcastUpdate('add', newImage);
+        // mark loaded
+        setImageLoading(l => ({ ...l, [newImage.id]: false }));
+      };
+
+      // if image fails to load, still attempt to add as-is without cropping
+      img.onerror = () => {
+        const newImage: CanvasObject = {
+          id,
+          type: 'image',
+          x: 100,
+          y: 100,
+          width: 200,
+          height: 200,
+          imageSrc,
+          scaleX: 1,
+          scaleY: 1,
+          rotation: 0
+        };
+        const updated = [...objects, newImage];
+        setObjects(updated);
+        saveToHistory(updated);
+        broadcastUpdate('add', newImage);
+      };
+      // (already set above) keep loading flag until image.onload fires
+    };
+
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Load HTMLImage for Konva Image nodes (cache by src)
+  const imageCache = useRef<Record<string, HTMLImageElement | null>>({});
+  const loadImage = (src: string): HTMLImageElement | null => {
+    if (!src) return null;
+    if (imageCache.current[src]) return imageCache.current[src];
+    const img = new window.Image();
+    img.src = src;
+    imageCache.current[src] = img;
+    return img;
+  };
+
+  // PDF Export (using canvas to image then download)
+  const exportCanvasPDF = () => {
+    (async () => {
+      try {
+        const stage = stageRef.current;
+        if (!stage) return;
+
+        const layer = layerRef.current;
+        if (!layer) return;
+
+        const bg = new Konva.Rect({
+          x: 0,
+          y: 0,
+          width: stage.width() / stageScale,
+          height: stage.height() / stageScale,
+          fill: 'white',
+        });
+        layer.add(bg);
+        bg.moveToBottom();
+        layer.batchDraw();
+
+        const dataURL = stage.toDataURL({ pixelRatio: 2 });
+
+        // Clean up
+        bg.destroy();
+        layer.batchDraw();
+
+        // Send to backend for PDF conversion
+        const payload = { imageData: dataURL, filename: `${projectTitle || 'canvas'}.pdf` };
+        const resp = await apiClient.post('/api/export/pdf', payload, { responseType: 'blob' });
+
+        // Download returned PDF blob
+        const blob = new Blob([resp.data], { type: 'application/pdf' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${projectTitle || 'canvas'}.pdf`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+
+        console.log('✅ Canvas exported as PDF via server');
+      } catch (error) {
+        console.error('❌ Export failed:', error);
+        alert('Failed to export PDF. Please try again.');
+      }
+    })();
+  };
+
+  // PNG Export
+  const downloadCanvasPNG = () => {
+    try {
+      const stage = stageRef.current;
+      if (!stage) return;
+      
+      // Add white background for export
+      const layer = layerRef.current;
+      if (!layer) return;
+      
+      const bg = new Konva.Rect({
+        x: 0,
+        y: 0,
+        width: stage.width() / stageScale,
+        height: stage.height() / stageScale,
+        fill: 'white',
+      });
+      layer.add(bg);
+      bg.moveToBottom();
+      layer.batchDraw();
+      
+      const dataURL = stage.toDataURL({ pixelRatio: 2 });
+      
+      // Remove background after export
+      bg.destroy();
+      layer.batchDraw();
+      
+      const link = document.createElement('a');
+      link.href = dataURL;
+      link.download = `${projectTitle || 'canvas'}.png`;
+      link.click();
+      console.log('✅ Canvas exported as PNG');
+    } catch (error) {
+      console.error('❌ PNG export failed:', error);
+      alert('Failed to export PNG. Please try again.');
+    }
   };
 
   const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
@@ -768,18 +1003,9 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', width: '100vw', backgroundColor: '#1e1e1e', overflow: 'hidden' }}>
+    <div className="canvas-editor-root">
       {/* Top Header Bar */}
-      <div style={{ 
-        height: '48px',
-        padding: '0 20px', 
-        backgroundColor: '#2d2d30', 
-        borderBottom: '1px solid #3e3e42',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexShrink: 0
-      }}>
+      <div className="canvas-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
           <button
             onClick={() => navigate('/dashboard')}
@@ -867,7 +1093,8 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                 cursor: historyStep <= 0 ? 'not-allowed' : 'pointer',
                 padding: '6px 12px',
                 borderRadius: '4px',
-                fontSize: '12px'
+                fontSize: '12px',
+                transition: 'all 0.2s'
               }}
             >
               ↶
@@ -883,16 +1110,41 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                 cursor: historyStep >= history.length - 1 ? 'not-allowed' : 'pointer',
                 padding: '6px 12px',
                 borderRadius: '4px',
-                fontSize: '12px'
+                fontSize: '12px',
+                transition: 'all 0.2s'
               }}
             >
               ↷
             </button>
           </div>
 
-          <span style={{ fontSize: '11px', color: '#666' }}>
-            {Math.round(stageScale * 100)}%
-          </span>
+          {/* Zoom Controls */}
+          <div className="zoom-controls">
+            <button
+              onClick={zoomOut}
+              title="Zoom Out (−)"
+              className="zoom-button"
+            >
+              −
+            </button>
+            <span className="zoom-display">
+              {Math.round(stageScale * 100)}%
+            </span>
+            <button
+              onClick={zoomIn}
+              title="Zoom In (+)"
+              className="zoom-button"
+            >
+              +
+            </button>
+            <button
+              onClick={resetZoom}
+              title="Reset Zoom (1:1)"
+              className="zoom-button zoom-reset"
+            >
+              1:1
+            </button>
+          </div>
 
           {userRole !== 'viewer' && (
             <button
@@ -949,16 +1201,8 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         {/* Left Toolbar */}
-        <div style={{ 
-          width: '72px', 
-          backgroundColor: '#252526', 
-          borderRight: '1px solid #3e3e42',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          padding: '16px 0',
-          gap: '8px'
-        }}>
+        <div className="canvas-toolbar-left">
+          {/* Main Tools */}
           <ToolButton 
             active={tool === 'select'} 
             onClick={() => setTool('select')}
@@ -1006,9 +1250,18 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             shortcut="T"
             disabled={userRole === 'viewer'}
           />
+          <ToolButton 
+            active={tool === 'fill'} 
+            onClick={() => setTool('fill')}
+            icon="🪣"
+            label="Fill"
+            shortcut="F"
+            disabled={userRole === 'viewer'}
+          />
 
           <div style={{ flex: 1 }} />
 
+          {/* Delete Button */}
           {selectedIds.length > 0 && (
             <button 
               onClick={handleDelete}
@@ -1024,8 +1277,12 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                 fontSize: '20px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                transition: 'background-color 0.2s',
+                marginBottom: '8px'
               }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#d32f2f'}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#f44336'}
             >
               🗑
             </button>
@@ -1114,7 +1371,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                       y={obj.y}
                       text={obj.text}
                       fill={obj.fill}
-                      fontSize={20}
+                      fontSize={obj.fontSize || 20}
                       rotation={obj.rotation}
                       scaleX={obj.scaleX}
                       scaleY={obj.scaleY}
@@ -1124,9 +1381,103 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                       onTransformEnd={handleTransformEnd}
                     />
                   );
+                } else if (obj.type === 'image') {
+                  const img = obj.imageSrc ? loadImage(obj.imageSrc) : null;
+                  // Draw Konva Image with cropping and transforms
+                  return (
+                    <KonvaImage
+                      key={obj.id}
+                      id={obj.id}
+                      x={obj.x}
+                      y={obj.y}
+                      image={img as any}
+                      width={obj.width}
+                      height={obj.height}
+                      rotation={obj.rotation}
+                      scaleX={obj.scaleX}
+                      scaleY={obj.scaleY}
+                      draggable={tool === 'select' && userRole !== 'viewer'}
+                      crop={{ x: obj.cropX || 0, y: obj.cropY || 0, width: obj.cropWidth || obj.width || 0, height: obj.cropHeight || obj.height || 0 }}
+                      onClick={(e) => handleObjectClick(e, obj.id)}
+                      onTransformEnd={handleTransformEnd}
+                    />
+                  );
                 }
                 return null;
               })}
+
+                {/* Crop rectangle (interactive) */}
+                {cropMode && cropRect && (
+                  <>
+                    <Rect
+                      ref={cropRectRef}
+                      id="__crop_rect"
+                      x={cropRect.x}
+                      y={cropRect.y}
+                      width={cropRect.width}
+                      height={cropRect.height}
+                      fill={'rgba(0,0,0,0.12)'}
+                      stroke={'#80b3ff'}
+                      strokeWidth={2}
+                      dash={[6, 4]}
+                      draggable={true}
+                      onDragEnd={(e) => {
+                        const node = e.target;
+                        setCropRect(r => r ? { ...r, x: node.x(), y: node.y() } : r);
+                      }}
+                      onTransformEnd={(e) => {
+                        const node = e.target;
+                        // apply width/height and reset scale
+                        const newW = Math.max(1, node.width() * node.scaleX());
+                        const newH = Math.max(1, node.height() * node.scaleY());
+                        node.scaleX(1);
+                        node.scaleY(1);
+                        setCropRect(r => r ? { ...r, x: node.x(), y: node.y(), width: newW, height: newH } : r);
+                      }}
+                      onTransform={(e) => {
+                        // live update while transforming for better responsiveness
+                        const node = e.target;
+                        const newW = Math.max(1, node.width() * node.scaleX());
+                        const newH = Math.max(1, node.height() * node.scaleY());
+                        setCropRect(r => r ? { ...r, x: node.x(), y: node.y(), width: newW, height: newH } : r);
+                      }}
+                    />
+                    <Transformer
+                      ref={cropTransformerRef}
+                      rotateEnabled={false}
+                      anchorSize={8}
+                      boundBoxFunc={(oldBox, newBox) => {
+                        if (newBox.width < 6 || newBox.height < 6) return oldBox;
+                        return newBox;
+                      }}
+                    />
+                  </>
+                )}
+
+                {/* Loading overlay for images still decoding */}
+                {objects.map(obj => {
+                  if (obj.type !== 'image') return null;
+                  if (!imageLoading[obj.id]) return null;
+                  return (
+                    <Group key={`loading-${obj.id}`} x={obj.x} y={obj.y}>
+                      <Rect
+                        x={0}
+                        y={0}
+                        width={obj.width}
+                        height={obj.height}
+                        fill={'rgba(0,0,0,0.35)'}
+                        cornerRadius={6}
+                      />
+                      <KonvaText
+                        x={8}
+                        y={8}
+                        text={'Loading image...'}
+                        fontSize={14}
+                        fill={'#fff'}
+                      />
+                    </Group>
+                  );
+                })}
 
               {isDrawing && (tool === 'pen' || tool === 'eraser') && currentLine.length > 0 && (
                 <Line
@@ -1226,57 +1577,208 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         </div>
 
         {/* Right Panel - Properties */}
-        <div style={{ 
-          width: '280px', 
-          backgroundColor: '#252526', 
-          borderLeft: '1px solid #3e3e42',
-          padding: '24px',
-          overflowY: 'auto'
-        }}>
-          <h3 style={{ color: '#e1e1e1', fontSize: '14px', fontWeight: 600, marginTop: 0, marginBottom: '20px' }}>
-            Properties
+        <div className="canvas-panel-right">
+          <h3 className="section-title">
+            Design
           </h3>
 
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', color: '#9d9d9d', fontSize: '12px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          {/* Fill Color */}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               Fill Color
             </label>
-            <input 
-              type="color" 
-              value={fillColor} 
-              onChange={(e) => setFillColor(e.target.value)}
-              style={{ 
-                width: '100%', 
-                height: '36px', 
-                border: '1px solid #3e3e42', 
-                borderRadius: '4px',
-                cursor: 'pointer',
-                backgroundColor: '#1e1e1e'
-              }}
-            />
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+              <input 
+                type="color" 
+                value={fillColor} 
+                onChange={(e) => setFillColor(e.target.value)}
+                style={{ 
+                  width: '48px', 
+                  height: '36px', 
+                  border: '1px solid #3e3e42', 
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  padding: '2px'
+                }}
+              />
+              <span style={{ color: '#ddd', fontSize: '12px', fontFamily: 'monospace' }}>{fillColor}</span>
+            </div>
+            {/* Quick Color Palette */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '4px' }}>
+              {colorPalette.map((color) => (
+                <button
+                  key={color}
+                  onClick={() => setFillColor(color)}
+                  title={color}
+                  className={`color-swatch ${fillColor === color ? 'active' : ''}`}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
+            </div>
           </div>
 
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', color: '#9d9d9d', fontSize: '12px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          {/* Image / Crop Controls */}
+          {selectedIds.length === 1 && (() => {
+            const selectedObj = objects.find(o => o.id === selectedIds[0]);
+            if (!selectedObj || selectedObj.type !== 'image') return null;
+
+            const startCrop = () => {
+              // initialize crop rect to center half of image
+              const w = (selectedObj.width || 100) * 0.6;
+              const h = (selectedObj.height || 100) * 0.6;
+              const x = (selectedObj.x || 0) + ((selectedObj.width || 0) - w) / 2;
+              const y = (selectedObj.y || 0) + ((selectedObj.height || 0) - h) / 2;
+              setCropRect({ x, y, width: w, height: h });
+              setCropMode(true);
+            };
+
+            const cancelCrop = () => {
+              setCropRect(null);
+              setCropMode(false);
+            };
+
+            const commitCrop = async () => {
+              if (!selectedObj.imageSrc || !cropRect) return;
+              const imgEl = loadImage(selectedObj.imageSrc);
+              if (!imgEl) return;
+              await new Promise<void>((res) => {
+                if (imgEl.complete && imgEl.naturalWidth) return res();
+                imgEl.onload = () => res();
+                imgEl.onerror = () => res();
+              });
+
+              // compute crop relative to the image's pixel space
+              const sx = Math.max(0, Math.round(cropRect.x - (selectedObj.x || 0)));
+              const sy = Math.max(0, Math.round(cropRect.y - (selectedObj.y || 0)));
+              const sw = Math.max(1, Math.round(cropRect.width));
+              const sh = Math.max(1, Math.round(cropRect.height));
+
+              const canvas = document.createElement('canvas');
+              canvas.width = sw;
+              canvas.height = sh;
+              const ctx = canvas.getContext('2d');
+              if (!ctx) return;
+              ctx.drawImage(imgEl, sx, sy, sw, sh, 0, 0, sw, sh);
+              const newDataUrl = canvas.toDataURL('image/png');
+
+              const updated = objects.map(o => o.id === selectedObj.id ? { ...o, imageSrc: newDataUrl, cropX: undefined, cropY: undefined, cropWidth: undefined, cropHeight: undefined, width: sw, height: sh, scaleX: 1, scaleY: 1 } : o);
+              setObjects(updated);
+              saveToHistory(updated);
+              broadcastUpdate('edit', updated.find(o => o.id === selectedObj.id));
+
+              cancelCrop();
+            };
+
+            const resetSize = () => {
+              if (!selectedObj.originalWidth || !selectedObj.originalHeight) return;
+              const w = selectedObj.originalWidth;
+              const h = selectedObj.originalHeight;
+              const updated = objects.map(o => o.id === selectedObj.id ? { ...o, width: w, height: h, scaleX: 1, scaleY: 1 } : o);
+              setObjects(updated);
+              saveToHistory(updated);
+              broadcastUpdate('edit', updated.find(o => o.id === selectedObj.id));
+            };
+
+            const fitToCanvas = () => {
+              const maxW = canvasSize.width / (stageScale || 1) * 0.9;
+              const maxH = canvasSize.height / (stageScale || 1) * 0.9;
+              const ow = selectedObj.originalWidth || (selectedObj.width || 100);
+              const oh = selectedObj.originalHeight || (selectedObj.height || 100);
+              const ratio = Math.min(maxW / ow, maxH / oh, 1);
+              const w = Math.round(ow * ratio);
+              const h = Math.round(oh * ratio);
+              const x = ((canvasSize.width / (stageScale || 1)) / 2) - (w / 2);
+              const y = ((canvasSize.height / (stageScale || 1)) / 2) - (h / 2);
+              const updated = objects.map(o => o.id === selectedObj.id ? { ...o, width: w, height: h, x, y, scaleX: 1, scaleY: 1 } : o);
+              setObjects(updated);
+              saveToHistory(updated);
+              broadcastUpdate('edit', updated.find(o => o.id === selectedObj.id));
+            };
+
+            return (
+              <div style={{ marginTop: '12px' }}>
+                <div style={{ color: '#9d9d9d', fontSize: '11px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Image</div>
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  {!cropMode && <button className="btn-primary" onClick={startCrop}>Start Crop</button>}
+                  {cropMode && (
+                    <>
+                      <button className="btn-primary" onClick={commitCrop}>Commit Crop</button>
+                      <button className="btn-danger" onClick={cancelCrop}>Cancel</button>
+                    </>
+                  )}
+                  <button className="btn-primary" onClick={resetSize}>Reset Size</button>
+                  <button className="btn-primary" onClick={fitToCanvas}>Fit to Canvas</button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Stroke Color */}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               Stroke Color
             </label>
-            <input 
-              type="color" 
-              value={strokeColor} 
-              onChange={(e) => setStrokeColor(e.target.value)}
-              style={{ 
-                width: '100%', 
-                height: '36px', 
-                border: '1px solid #3e3e42', 
-                borderRadius: '4px',
-                cursor: 'pointer',
-                backgroundColor: '#1e1e1e'
-              }}
-            />
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
+              <input 
+                type="color" 
+                value={strokeColor} 
+                onChange={(e) => setStrokeColor(e.target.value)}
+                style={{ 
+                  width: '48px', 
+                  height: '36px', 
+                  border: '1px solid #3e3e42', 
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  padding: '2px'
+                }}
+              />
+              <span style={{ color: '#ddd', fontSize: '12px', fontFamily: 'monospace' }}>{strokeColor}</span>
+            </div>
           </div>
 
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{ display: 'block', color: '#9d9d9d', fontSize: '12px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          {/* Font Size */}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Font Size: {fontSize}px
+            </label>
+            <input 
+              type="range" 
+              value={fontSize} 
+              onChange={(e) => setFontSize(Number(e.target.value))}
+              min="12"
+              max="72"
+              style={{ 
+                width: '100%',
+                accentColor: '#007acc',
+                marginBottom: '8px'
+              }}
+            />
+            {/* Font Size Presets */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
+              {[16, 20, 32, 48].map((size) => (
+                <button
+                  key={size}
+                  onClick={() => setFontSize(size)}
+                  style={{
+                    padding: '6px 8px',
+                    backgroundColor: fontSize === size ? '#007acc' : 'transparent',
+                    color: fontSize === size ? 'white' : '#9d9d9d',
+                    border: `1px solid ${fontSize === size ? '#007acc' : '#3e3e42'}`,
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {size}px
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Stroke Width */}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
               Stroke Width: {strokeWidth}px
             </label>
             <input 
@@ -1287,9 +1789,31 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
               max="20"
               style={{ 
                 width: '100%',
-                accentColor: '#007acc'
+                accentColor: '#007acc',
+                marginBottom: '8px'
               }}
             />
+            {/* Stroke Width Presets */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '4px' }}>
+              {[1, 2, 4, 6].map((w) => (
+                <button
+                  key={w}
+                  onClick={() => setStrokeWidth(w)}
+                  style={{
+                    padding: '6px 8px',
+                    backgroundColor: strokeWidth === w ? '#007acc' : 'transparent',
+                    color: strokeWidth === w ? 'white' : '#9d9d9d',
+                    border: `1px solid ${strokeWidth === w ? '#007acc' : '#3e3e42'}`,
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {w}px
+                </button>
+              ))}
+            </div>
           </div>
 
           {selectedIds.length > 0 && (
@@ -1323,13 +1847,71 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                   borderRadius: '4px',
                   cursor: 'pointer',
                   fontSize: '13px',
-                  fontWeight: 500
+                  fontWeight: 500,
+                  marginBottom: '8px'
                 }}
               >
                 Duplicate (⌘D)
               </button>
             </>
           )}
+
+          {/* Image Upload */}
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Upload Image
+            </label>
+            <input 
+              type="file" 
+              accept="image/*"
+              onChange={handleImageUpload}
+              disabled={userRole === 'viewer'}
+              style={{ 
+                width: '100%',
+                fontSize: '12px',
+                cursor: userRole === 'viewer' ? 'not-allowed' : 'pointer',
+                color: '#9d9d9d',
+                opacity: userRole === 'viewer' ? 0.5 : 1
+              }}
+            />
+          </div>
+
+          {/* Export Button */}
+          <button 
+            onClick={exportCanvasPDF}
+            style={{ 
+              width: '100%',
+              padding: '12px',
+              backgroundColor: '#4caf50',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: 500,
+              marginBottom: '8px'
+            }}
+          >
+            📥 Export as PDF
+          </button>
+
+          <button 
+            onClick={downloadCanvasPNG}
+            style={{ 
+              width: '100%',
+              padding: '12px',
+              backgroundColor: '#2196f3',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              fontWeight: 500,
+              marginBottom: '8px'
+            }}
+          >
+            📥 Export as PNG
+          </button>
 
           <div style={{ 
             marginTop: 'auto', 

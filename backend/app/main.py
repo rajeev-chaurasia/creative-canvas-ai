@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import socketio
-from .routers import auth, projects, sharing, ai
+from .routers import auth, projects, sharing, ai, export_pdf
 from .database import engine, Base
 from .socket_handler import sio
 
@@ -22,6 +22,7 @@ app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(sharing.router)
 app.include_router(ai.router)
+app.include_router(export_pdf.router)
 
 @app.get("/")
 def read_root():

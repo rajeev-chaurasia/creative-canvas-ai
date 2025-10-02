@@ -43,23 +43,9 @@ function Navigation() {
 
   return (
     <>
-      <nav style={{
-        width: '100%',
-        backgroundColor: '#1b1b1d',
-        padding: '10px 5%',
-        borderBottom: '1px solid rgba(255,255,255,0.03)',
-        boxSizing: 'border-box'
-      }}>
-        <div style={{
-          maxWidth: '1600px',
-          margin: '0 auto',
-          display: 'flex',
-          gap: '16px',
-          alignItems: 'center'
-        }}>
-          <div style={{ fontWeight: 700, color: '#eaeaea', fontSize: '18px' }}>
-            Canvas AI
-          </div>
+      <nav className="app-nav">
+        <div className="app-nav-inner">
+          <div className="app-brand">Canvas AI</div>
 
           <div style={{ flex: 1 }} />
 
@@ -70,22 +56,9 @@ function Navigation() {
                 onClick={() => setMenuOpen(v => !v)}
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
-                style={{
-                  width: '36px',
-                  height: '36px',
-                  borderRadius: '50%',
-                  background: 'linear-gradient(135deg,#7a57ff,#5cc1ff)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'white',
-                  fontWeight: 700,
-                  cursor: 'pointer',
-                  border: 'none'
-                }}
+                className="profile-button"
                 title="Profile"
               >
-                {/* Simple glyph icon (no SVG) */}
                 <span className="profile-icon-glyph" aria-hidden>👤</span>
               </button>
             </div>
