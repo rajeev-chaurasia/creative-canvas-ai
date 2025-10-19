@@ -92,10 +92,16 @@ async def analyze_asset(
     down_bytes, mime_type = _downscale_image(image_bytes, max_dim=1024)
     
     prompt = (
-        "Analyze this image and provide:\n"
-        "1. A detailed description (2-3 sentences)\n"
-        "2. 5-10 relevant keywords for search/tagging\n"
-        "3. Alt-text for accessibility (1 sentence)\n\n"
+        "Analyze this image/drawing/design carefully. It may be:\n"
+        "- A photograph or digital image\n"
+        "- A hand-drawn sketch, illustration, or artwork\n"
+        "- Shapes and lines forming recognizable objects\n"
+        "- A design mockup, wireframe, or diagram\n\n"
+        "Identify what is depicted (objects, scenes, concepts) and describe the visual style.\n\n"
+        "Provide:\n"
+        "1. A detailed description identifying the main subject and style (2-3 sentences)\n"
+        "2. 5-10 relevant keywords including object names, visual characteristics, and style\n"
+        "3. Alt-text for accessibility describing the subject (1 sentence)\n\n"
         "Return ONLY valid JSON in this exact format:\n"
         '{"description": "detailed description here", "keywords": ["keyword1", "keyword2", ...], "alt_text": "alt text here"}'
     )
@@ -124,10 +130,19 @@ async def analyze_canvas(
     down_bytes, mime_type = _downscale_image(image_bytes, max_dim=1024)
     
     prompt = (
-        "Analyze this canvas screenshot showing a design workspace. Provide:\n"
-        "1. A comprehensive description of the overall design, layout, and visual elements\n"
-        "2. 8-12 keywords that describe the design style, content, and mood\n"
-        "3. Alt-text for the entire canvas\n\n"
+        "Analyze this canvas/drawing/artwork carefully. It may contain:\n"
+        "- Hand-drawn sketches, doodles, or illustrations\n"
+        "- Geometric shapes and lines forming recognizable objects\n"
+        "- Digital designs, wireframes, or mockups\n"
+        "- Mixed media or abstract compositions\n\n"
+        "Identify and describe:\n"
+        "1. What objects, scenes, or concepts are depicted (e.g., house, person, landscape, UI design)\n"
+        "2. The drawing/design style (sketch, line art, realistic, abstract, technical, etc.)\n"
+        "3. Key visual elements, composition, and any text or symbols\n\n"
+        "Provide:\n"
+        "1. A detailed description identifying what is shown (2-3 sentences)\n"
+        "2. 8-12 relevant keywords including: object names, drawing style, visual characteristics, mood\n"
+        "3. Alt-text describing the main subject and style\n\n"
         "Return ONLY valid JSON in this exact format:\n"
         '{"description": "comprehensive description here", "keywords": ["keyword1", "keyword2", ...], "alt_text": "alt text here"}'
     )
