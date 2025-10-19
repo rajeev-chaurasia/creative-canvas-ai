@@ -325,9 +325,8 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   const handleManualSave = async () => {
     setIsSaving(true);
     try {
-      await apiClient.put(`/api/projects/${projectUuid}`, {
+      await apiClient.patch(`/api/projects/${projectUuid}`, {
         canvas_state: { objects }
-        // Don't send title - it shouldn't change when saving canvas
       });
       setLastSaved(new Date());
     } catch (error) {
@@ -342,9 +341,8 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   useEffect(() => {
     const saveCanvas = async () => {
       try {
-        await apiClient.put(`/api/projects/${projectUuid}`, {
+        await apiClient.patch(`/api/projects/${projectUuid}`, {
           canvas_state: { objects }
-          // Don't send title - it shouldn't change when saving canvas
         });
         setLastSaved(new Date());
       } catch (error) {

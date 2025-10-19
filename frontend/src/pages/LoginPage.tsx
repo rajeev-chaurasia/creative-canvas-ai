@@ -24,9 +24,6 @@ const LoginPage = () => {
             <span>🚀 Sign In with Google</span>
           </button>
         </div>
-        <small className="hero-note">
-          Works best in modern browsers. Your designs are private and secure by default.
-        </small>
         <div className="feature-pills">
           <span className="feature-pill">✨ AI-Powered</span>
           <span className="feature-pill">🎨 Intuitive Design</span>

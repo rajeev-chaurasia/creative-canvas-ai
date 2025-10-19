@@ -9,6 +9,12 @@ class ProjectBase(BaseModel):
 class ProjectCreate(ProjectBase):
     pass
 
+
+class ProjectUpdate(BaseModel):
+    """Schema for partial updates to a project (PATCH semantics)"""
+    title: Optional[str] = None
+    canvas_state: Optional[dict] = None
+
 class Project(ProjectBase):
     id: int
     uuid: str

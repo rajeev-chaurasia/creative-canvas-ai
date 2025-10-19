@@ -253,33 +253,33 @@
   }
 }
 
-@media (max-width: 480px) {
+@media (min-width: 1200px) {
   .hero-card {
-    padding: var(--space-lg) var(--space-md);
-    border-radius: var(--radius-xl);
+    /* keep the card centered and avoid it becoming too wide */
+    max-width: 720px;
+    margin-left: auto;
+    margin-right: auto;
   }
 
-  .cta-row {
-    flex-direction: column;
+  .hero-title {
+    /* prefer one-line heading on large layouts but keep it constrained */
+    white-space: nowrap;
+    font-size: clamp(2rem, 2.2vw, 2.75rem);
+    overflow-wrap: normal;
+    word-break: keep-all;
+  }
+}
+/* Tweak for medium-large screens where the heading was splitting */
+@media (min-width: 900px) and (max-width: 1199px) {
+  .hero-card {
+    max-width: 760px;
   }
 
-  .btn-primary {
-    width: 100%;
-  }
-
-  .hero-footer {
-    flex-direction: column;
-    gap: var(--space-sm);
-    font-size: 0.8125rem;
-  }
-
-  .feature-pills {
-    gap: var(--space-xs);
-  }
-
-  .feature-pill {
-    font-size: 0.75rem;
-    padding: var(--space-xs) var(--space-sm);
+  .hero-title {
+    white-space: nowrap;
+    font-size: clamp(1.9rem, 3.2vw, 2.8rem);
+    overflow-wrap: normal;
+    word-break: keep-all;
   }
 }
 

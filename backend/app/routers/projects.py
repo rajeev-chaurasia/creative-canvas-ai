@@ -116,6 +116,47 @@ async def update_project(
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to update project: {str(e)}")
 
+
+@router.patch("/{project_uuid}", response_model=schemas.Project)
+async def patch_project(
+    project_uuid: str,
+    project: schemas.ProjectUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Partial update for a project (only provided fields are updated)"""
+    try:
+        db_project = await require_permission(project_uuid, current_user.id, db, "edit")
+
+        update_data = project.dict(exclude_unset=True)
+        if not update_data:
+            return db_project
+
+        for key, value in update_data.items():
+            setattr(db_project, key, value)
+
+        db.add(db_project)
+        db.commit()
+        db.refresh(db_project)
+
+        # Log activity
+        await log_activity(
+            project_id=db_project.id,
+            user_id=current_user.id,
+            action="edited",
+            db=db,
+            details={"updated_fields": list(update_data.keys())}
+        )
+
+        # Add user's role
+        role = await get_user_role(project_uuid, current_user.id, db)
+        db_project.user_role = role.value if role else None
+
+        return db_project
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to patch project: {str(e)}")
+
 @router.delete("/{project_uuid}")
 async def delete_project(
     project_uuid: str, 
