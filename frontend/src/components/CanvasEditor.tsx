@@ -5,6 +5,7 @@ import { useSocket } from '../hooks/useSocket';
 import apiClient from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import ShareModal from './ShareModal';
+import PalettePopover from './PalettePopover';
 import './CanvasEditor.css';
 
 interface CanvasObject {
@@ -513,6 +514,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
 
   const [isGeneratingPalette, setIsGeneratingPalette] = useState(false);
   const [generatedPalette, setGeneratedPalette] = useState<string[]>([]);
+  const [paletteAnchor, setPaletteAnchor] = useState<{ left: number; top: number } | null>(null);
   const [isAnalyzingCanvas, setIsAnalyzingCanvas] = useState(false);
   const [canvasAnalysis, setCanvasAnalysis] = useState<{
     description: string;
@@ -1903,14 +1905,16 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                     >
                       {isCreatingSmartGroups ? '⏳' : '📦 Group'}
                     </button>
-                    <button
-                      onClick={() => {
+                <button
+                  onClick={(e) => {
                         if (selectedIds.length === 1) {
                           handleGeneratePalette();
                         } else {
                           handleGeneratePaletteFromCanvas();
                         }
-                        setAiMenuOpen(false);
+                    setAiMenuOpen(false);
+                    const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                    setPaletteAnchor({ left: rect.left, top: rect.bottom + 6 });
                       }}
                       disabled={isGeneratingPalette}
                       title="Generate Color Palette"
@@ -1926,13 +1930,13 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                     >
                       {isGeneratingPalette ? '⏳' : '🎨 Palette'}
                     </button>
-                    <button
-                      onClick={() => {
+                <button
+                  onClick={() => {
                         const keywords = prompt('Enter keywords to search for images (e.g., "modern design, abstract, blue"):');
                         if (keywords && keywords.trim()) {
                           handleFindMoreAssetsByKeywords(keywords.trim());
                         }
-                        setAiMenuOpen(false);
+                    setAiMenuOpen(false);
                       }}
                       disabled={isFindingAssets}
                       title="Find Images by Keywords"
@@ -1997,12 +2001,14 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                   {isCreatingSmartGroups ? '⏳' : '📦'} Group
                 </button>
                 <button
-                  onClick={() => {
+                  onClick={(e) => {
                     if (selectedIds.length === 1) {
                       handleGeneratePalette();
                     } else {
                       handleGeneratePaletteFromCanvas();
                     }
+                    const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                    setPaletteAnchor({ left: rect.left, top: rect.bottom + 6 });
                   }}
                   disabled={isGeneratingPalette}
                   title="Generate Color Palette"
@@ -2053,78 +2059,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             )}
           </div>
 
-          {/* Generated Color Palette Display */}
-          {generatedPalette.length > 0 && (
-            <div style={{ 
-              display: 'flex', 
-              gap: '4px', 
-              marginLeft: isSmallScreen ? '8px' : '16px', 
-              alignItems: 'center',
-              flexWrap: 'wrap'
-            }}>
-              {!isSmallScreen && (
-                <span style={{ color: '#e1e1e1', fontSize: '12px', fontWeight: 500 }}>Generated Colors:</span>
-              )}
-              <div style={{ display: 'flex', gap: '2px' }}>
-                {generatedPalette.map((color, index) => (
-                  <button
-                    key={index}
-                    onClick={() => {
-                      setStrokeColor(color);
-                      setFillColor(color);
-                    }}
-                    style={{
-                      width: isSmallScreen ? '20px' : '24px',
-                      height: isSmallScreen ? '20px' : '24px',
-                      backgroundColor: color,
-                      border: '2px solid #3e3e42',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s',
-                      position: 'relative',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.borderColor = '#007acc';
-                      e.currentTarget.style.transform = 'scale(1.1)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.borderColor = '#3e3e42';
-                      e.currentTarget.style.transform = 'scale(1)';
-                    }}
-                    title={`Click to set as stroke & fill color: ${color}`}
-                  >
-                    <span style={{ 
-                      color: 'white', 
-                      fontSize: isSmallScreen ? '6px' : '8px', 
-                      fontWeight: 'bold', 
-                      textShadow: '1px 1px 2px rgba(0,0,0,0.8)' 
-                    }}>
-                      {index + 1}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <button
-                onClick={() => setGeneratedPalette([])}
-                style={{
-                  background: 'none',
-                  border: '1px solid #3e3e42',
-                  color: '#888',
-                  cursor: 'pointer',
-                  padding: '2px 6px',
-                  borderRadius: '4px',
-                  fontSize: '10px',
-                  marginLeft: '8px'
-                }}
-                title="Clear palette"
-              >
-                ✕
-              </button>
-            </div>
-          )}
+          {/* Generated Color Palette Display (moved to modal to avoid navbar disruption) */}
 
           {/* Zoom Controls */}
           <div className="zoom-controls" style={{ 
@@ -2392,7 +2327,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             onTouchEnd={handleTouchEnd}
             onDrop={handleDrop}
             onDragOver={handleDragOver}
-            style={{ backgroundColor: '#ffffff', touchAction: 'none' }}
+            style={{ backgroundColor: '#ffffff', touchAction: 'none', outline: 'none' }}
           >
             <Layer ref={layerRef}>
               {objects.map((obj) => {
@@ -2692,6 +2627,18 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             height: '100%'
           }}
         >
+          {isSmallScreen && (
+            <div className="panel-mobile-header">
+              <div style={{ fontSize: '12px', fontWeight: 700, letterSpacing: '0.5px', color: '#9d9d9d' }}>Properties</div>
+              <button
+                onClick={() => setRightPanelOpen(false)}
+                title="Close properties"
+                className="panel-close-btn"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           <h3 className="section-title">
             Design
           </h3>
@@ -2847,6 +2794,18 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
               }}
             />
               <span style={{ color: '#ddd', fontSize: '12px', fontFamily: 'monospace' }}>{strokeColor}</span>
+            </div>
+            {/* Quick Color Palette (helps mobile where input[type=color] is limited) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '4px' }}>
+              {colorPalette.map((color) => (
+                <button
+                  key={color}
+                  onClick={() => setStrokeColor(color)}
+                  title={color}
+                  className={`color-swatch ${strokeColor === color ? 'active' : ''}`}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
             </div>
           </div>
 
@@ -3505,6 +3464,18 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         </div>
       </div>
 
+      {generatedPalette.length > 0 && paletteAnchor && (
+        <PalettePopover
+          anchor={paletteAnchor}
+          colors={generatedPalette}
+          onSelect={(color) => {
+            setStrokeColor(color);
+            setPaletteAnchor(null);
+          }}
+          onClose={() => setPaletteAnchor(null)}
+        />
+      )}
+
       {/* Asset Suggestions Sidebar */}
       {showSuggestions && (
         <div style={{
@@ -3597,7 +3568,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             right: 0,
             bottom: 0,
             backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            zIndex: 999,
+            zIndex: 150,
             cursor: 'pointer'
           }}
           onClick={() => {
@@ -3655,7 +3626,8 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         </div>
       )}
 
-      {/* Edge toggle buttons for side panels */}
+      {/* Edge toggle buttons for side panels (desktop only, hidden when panels open) */}
+      {!isSmallScreen && !leftPanelOpen && !rightPanelOpen && (
       <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, pointerEvents: 'none' }}>
         <button
           onClick={() => setLeftPanelOpen(!leftPanelOpen)}
@@ -3664,7 +3636,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             position: 'absolute',
             left: leftPanelOpen ? 68 : 0,
             transform: 'translateY(-50%)',
-            zIndex: 15,
+            zIndex: 300,
             width: 20,
             height: 40,
             borderRadius: '0 6px 6px 0',
@@ -3685,7 +3657,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             position: 'absolute',
             right: rightPanelOpen ? 276 : 0,
             transform: 'translateY(-50%)',
-            zIndex: 15,
+            zIndex: 300,
             width: 20,
             height: 40,
             borderRadius: '6px 0 0 6px',
@@ -3699,6 +3671,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
           {rightPanelOpen ? '›' : '‹'}
         </button>
       </div>
+      )}
     </div>
     </>
   );

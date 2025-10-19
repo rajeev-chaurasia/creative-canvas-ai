@@ -9,6 +9,7 @@
   background: linear-gradient(135deg, var(--bg-primary) 0%, #1a1f3a 100%);
   color: var(--text-primary);
   overflow: hidden;
+  outline: none; /* avoid any focus outline visuals */
 }
 
 /* Header */
@@ -260,6 +261,7 @@
   position: relative;
   overflow: hidden;
   box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.05);
+  outline: none; /* prevent dotted focus borders */
 }
 
 /* Right Panel */
@@ -275,6 +277,36 @@
   gap: var(--space-xl);
   transition: all var(--transition-base);
   box-shadow: var(--shadow-sm);
+  pointer-events: auto; /* ensure clicks are accepted when overlaying on mobile */
+  z-index: 200; /* keep above canvas */
+}
+
+/* Mobile sticky header + close button for properties panel */
+.panel-mobile-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: var(--space-sm);
+  margin-bottom: var(--space-md);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-close-btn {
+  background: transparent;
+  color: #e1e1e1;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+.panel-close-btn:active,
+.panel-close-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary-light);
 }
 
 .canvas-panel-right.collapsed {
@@ -326,6 +358,7 @@
   cursor: pointer;
   transition: all var(--transition-fast);
   position: relative;
+  touch-action: manipulation; /* improve mobile tap response */
 }
 
 .color-swatch:hover {
@@ -662,7 +695,7 @@ select:focus {
     position: fixed;
     top: 64px;
     bottom: 0;
-    z-index: 95;
+    z-index: 200; /* ensure sidebars sit above header and canvas on mobile */
     box-shadow: var(--shadow-xl);
   }
 
@@ -721,6 +754,7 @@ select:focus {
     top: auto;
     bottom: 64px;
     height: calc(100vh - 128px);
+    z-index: 200; /* keep above header in small screens */
   }
 
   .canvas-panel-right {
