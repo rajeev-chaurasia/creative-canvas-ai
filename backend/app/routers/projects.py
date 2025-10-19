@@ -26,32 +26,33 @@ async def create_project(
     current_user: models.User = Depends(get_current_user)
 ):
     """Create a new project with auto-generated UUID"""
-    print(f"📝 Creating project with title: '{project.title}'")
-    print(f"📝 Canvas state: {project.canvas_state}")
-    
-    db_project = models.Project(
-        uuid=str(uuid_lib.uuid4()),
-        title=project.title,
-        canvas_state=project.canvas_state,
-        owner_id=current_user.id
-    )
-    db.add(db_project)
-    db.commit()
-    db.refresh(db_project)
-    
-    # Log activity
-    await log_activity(
-        project_id=db_project.id,
-        user_id=current_user.id,
-        action="created",
-        db=db,
-        details={"title": project.title}
-    )
-    
-    # Add user_role for consistency
-    db_project.user_role = "owner"
-    
-    return db_project
+    try:
+        db_project = models.Project(
+            uuid=str(uuid_lib.uuid4()),
+            title=project.title,
+            canvas_state=project.canvas_state,
+            owner_id=current_user.id
+        )
+        db.add(db_project)
+        db.commit()
+        db.refresh(db_project)
+        
+        # Log activity
+        await log_activity(
+            project_id=db_project.id,
+            user_id=current_user.id,
+            action="created",
+            db=db,
+            details={"title": project.title}
+        )
+        
+        # Add user_role for consistency
+        db_project.user_role = "owner"
+        
+        return db_project
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create project: {str(e)}")
 
 @router.get("/", response_model=schemas.ProjectListResponse)
 async def read_projects(
@@ -86,30 +87,34 @@ async def update_project(
     current_user: models.User = Depends(get_current_user)
 ):
     """Update a project (requires edit permission)"""
-    db_project = await require_permission(project_uuid, current_user.id, db, "edit")
-    
-    project_data = project.dict(exclude_unset=True)
-    for key, value in project_data.items():
-        setattr(db_project, key, value)
-    
-    db.add(db_project)
-    db.commit()
-    db.refresh(db_project)
-    
-    # Log activity
-    await log_activity(
-        project_id=db_project.id,
-        user_id=current_user.id,
-        action="edited",
-        db=db,
-        details={"updated_fields": list(project_data.keys())}
-    )
-    
-    # Add user's role
-    role = await get_user_role(project_uuid, current_user.id, db)
-    db_project.user_role = role.value if role else None
-    
-    return db_project
+    try:
+        db_project = await require_permission(project_uuid, current_user.id, db, "edit")
+        
+        project_data = project.dict(exclude_unset=True)
+        for key, value in project_data.items():
+            setattr(db_project, key, value)
+        
+        db.add(db_project)
+        db.commit()
+        db.refresh(db_project)
+        
+        # Log activity
+        await log_activity(
+            project_id=db_project.id,
+            user_id=current_user.id,
+            action="edited",
+            db=db,
+            details={"updated_fields": list(project_data.keys())}
+        )
+        
+        # Add user's role
+        role = await get_user_role(project_uuid, current_user.id, db)
+        db_project.user_role = role.value if role else None
+        
+        return db_project
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to update project: {str(e)}")
 
 @router.delete("/{project_uuid}")
 async def delete_project(
@@ -118,18 +123,22 @@ async def delete_project(
     current_user: models.User = Depends(get_current_user)
 ):
     """Delete a project (requires delete permission - owner only)"""
-    db_project = await require_permission(project_uuid, current_user.id, db, "delete")
-    
-    # Log activity before deletion
-    await log_activity(
-        project_id=db_project.id,
-        user_id=current_user.id,
-        action="deleted",
-        db=db,
-        details={"title": db_project.title}
-    )
-    
-    db.delete(db_project)
-    db.commit()
-    
-    return {"message": "Project deleted successfully"}
+    try:
+        db_project = await require_permission(project_uuid, current_user.id, db, "delete")
+        
+        # Log activity before deletion
+        await log_activity(
+            project_id=db_project.id,
+            user_id=current_user.id,
+            action="deleted",
+            db=db,
+            details={"title": db_project.title}
+        )
+        
+        db.delete(db_project)
+        db.commit()
+        
+        return {"message": "Project deleted successfully"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete project: {str(e)}")

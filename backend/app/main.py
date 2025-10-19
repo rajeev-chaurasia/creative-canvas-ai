@@ -1,9 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import socketio
+import os
+from dotenv import load_dotenv
 from .routers import auth, projects, sharing, ai, export_pdf
 from .database import engine, Base
 from .socket_handler import sio
+
+# Load environment variables
+load_dotenv()
 
 Base.metadata.create_all(bind=engine)
 

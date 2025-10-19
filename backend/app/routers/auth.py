@@ -25,6 +25,24 @@ GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
 
+# Validate required environment variables
+def validate_env_vars():
+    required_vars = {
+        "SECRET_KEY": SECRET_KEY,
+        "GOOGLE_CLIENT_ID": GOOGLE_CLIENT_ID,
+        "GOOGLE_CLIENT_SECRET": GOOGLE_CLIENT_SECRET,
+        "GOOGLE_REDIRECT_URI": GOOGLE_REDIRECT_URI,
+    }
+    
+    missing_vars = [var for var, value in required_vars.items() if not value]
+    if missing_vars:
+        raise ValueError(f"Missing required environment variables: {', '.join(missing_vars)}")
+    
+    return True
+
+# Validate on module load
+validate_env_vars()
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None):

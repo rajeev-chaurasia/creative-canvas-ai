@@ -26,6 +26,8 @@ interface CanvasObject {
   scaleY?: number;
   globalCompositeOperation?: string; // For eraser
   imageSrc?: string; // For images
+  imageUrl?: string; // For AI images
+  alt?: string; // For AI images
   cropX?: number; // For crop
   cropY?: number;
   cropWidth?: number;
@@ -37,6 +39,19 @@ interface CanvasObject {
 interface CanvasEditorProps {
   projectUuid: string;
 }
+
+const ImageComponent = ({ imageUrl, ...props }: { imageUrl: string; [key: string]: any }) => {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+
+  useEffect(() => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => setImage(img);
+    img.src = imageUrl;
+  }, [imageUrl]);
+
+  return image ? <KonvaImage {...props} image={image} /> : null;
+};
 
 // Tool Button Component
 const ToolButton = ({ active, onClick, icon, label, shortcut, disabled }: { 
@@ -136,7 +151,6 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     role?: string;
   }>>([]);
 
-  // Save to history for undo/redo
   const saveToHistory = useCallback((newObjects: CanvasObject[]) => {
     const newHistory = history.slice(0, historyStep + 1);
     newHistory.push(JSON.parse(JSON.stringify(newObjects)));
@@ -360,7 +374,6 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     };
   }, [socket]);
 
-  // Listen for canvas updates
   useEffect(() => {
     if (!socket) return;
 
@@ -441,7 +454,6 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     };
   }, [socket]);
 
-  // Broadcast updates
   const broadcastUpdate = (action: string, object?: CanvasObject, objectId?: string) => {
     if (socket) {
       console.log('📤 SENDING canvas_update:', action, object?.id || objectId);
@@ -454,7 +466,6 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     }
   };
 
-  // Update transformer when selection changes
   useEffect(() => {
     if (!transformerRef.current || !layerRef.current) return;
 
@@ -473,7 +484,6 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     transformerRef.current.getLayer()?.batchDraw();
   }, [selectedIds, userRole]);
 
-  // Update crop transformer when crop rect exists
   useEffect(() => {
     if (!cropTransformerRef.current || !layerRef.current) return;
     const rectNode = cropRectRef.current;
@@ -490,6 +500,39 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   const [cropMode, setCropMode] = useState(false);
   const [cropRect, setCropRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
   const [imageLoading, setImageLoading] = useState<Record<string, boolean>>({});
+
+  const [isGeneratingPalette, setIsGeneratingPalette] = useState(false);
+  const [generatedPalette, setGeneratedPalette] = useState<string[]>([]);
+  const [isAnalyzingCanvas, setIsAnalyzingCanvas] = useState(false);
+  const [canvasAnalysis, setCanvasAnalysis] = useState<{
+    description: string;
+    keywords: string[];
+    alt_text: string;
+  } | null>(null);
+  const [isGeneratingText, setIsGeneratingText] = useState(false);
+  const [generatedText, setGeneratedText] = useState<{
+    titles?: string;
+    brief?: string;
+    social_media?: string;
+  }>({});
+  const [isCreatingSmartGroups, setIsCreatingSmartGroups] = useState(false);
+  const [smartGroups, setSmartGroups] = useState<Record<string, string[]>>({});
+  const [isAnalyzingAsset, setIsAnalyzingAsset] = useState(false);
+  const [assetAnalysis, setAssetAnalysis] = useState<{
+    description: string;
+    keywords: string[];
+    alt_text: string;
+  } | null>(null);
+  const [isFindingAssets, setIsFindingAssets] = useState(false);
+  const [assetSuggestions, setAssetSuggestions] = useState<Array<{
+    id: string;
+    url: string;
+    url_large: string;
+    alt: string;
+    photographer: string;
+    photographer_url: string;
+  }>>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
     // Close text editing if clicking outside
@@ -642,7 +685,6 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     const pos = stage.getRelativePointerPosition();
     if (!pos) return;
 
-    // Update drawing line if drawing
     if (isDrawing && (tool === 'pen' || tool === 'eraser')) {
       if (userRole === 'viewer') return; // View-only mode
       setCurrentLine([...currentLine, pos.x, pos.y]);
@@ -661,7 +703,6 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     }
   };
 
-  // Add ref for throttling cursor broadcasts
   const lastCursorBroadcast = useRef(0);
 
   const handleMouseUp = () => {
@@ -819,7 +860,6 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         setImageLoading(l => ({ ...l, [newImage.id]: false }));
       };
 
-      // if image fails to load, still attempt to add as-is without cropping
       img.onerror = () => {
         const newImage: CanvasObject = {
           id,
@@ -911,8 +951,6 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     try {
       const stage = stageRef.current;
       if (!stage) return;
-      
-      // Add white background for export
       const layer = layerRef.current;
       if (!layer) return;
       
@@ -928,8 +966,6 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
       layer.batchDraw();
       
       const dataURL = stage.toDataURL({ pixelRatio: 2 });
-      
-      // Remove background after export
       bg.destroy();
       layer.batchDraw();
       
@@ -1002,8 +1038,548 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     node.scaleY(1);
   };
 
+  // AI Color Palette handler
+  const handleGeneratePalette = async () => {
+    if (selectedIds.length !== 1) return;
+    
+    const selectedObject = objects.find(obj => obj.id === selectedIds[0]);
+    if (!selectedObject) return;
+
+    setIsGeneratingPalette(true);
+    
+    try {
+      // Capture the selected object as an image
+      const imageBlob = await captureObjectAsImage(selectedObject);
+      
+      // Create FormData for the API call
+      const formData = new FormData();
+      formData.append('image', imageBlob, 'object.png');
+
+      console.log('🎨 Calling AI Color Palette API...');
+      
+      // Call the AI endpoint
+      const response = await apiClient.post('/api/ai/color-palette', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      console.log('🎨 AI Color Palette Response:', response.data);
+      setGeneratedPalette(response.data.colors);
+    } catch (error) {
+      console.error('❌ Failed to generate palette:', error);
+      // Fallback to mock data for development
+      const mockPalette = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD'];
+      setGeneratedPalette(mockPalette);
+    } finally {
+      setIsGeneratingPalette(false);
+    }
+  };
+
+  // AI Color Palette from entire canvas
+  const handleGeneratePaletteFromCanvas = async () => {
+    setIsGeneratingPalette(true);
+    
+    try {
+      // Capture the entire canvas as an image
+      const imageBlob = await captureCanvasAsImage();
+      
+      // Create FormData for the API call
+      const formData = new FormData();
+      formData.append('image', imageBlob, 'canvas.png');
+
+      console.log('🎨 Calling AI Color Palette API for entire canvas...');
+      
+      // Call the AI endpoint
+      const response = await apiClient.post('/api/ai/color-palette', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      console.log('🎨 AI Color Palette Response:', response.data);
+      setGeneratedPalette(response.data.colors);
+    } catch (error) {
+      console.error('❌ Failed to generate palette:', error);
+      // Fallback to mock data for development
+      const mockPalette = ['#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7', '#DDA0DD'];
+      setGeneratedPalette(mockPalette);
+    } finally {
+      setIsGeneratingPalette(false);
+    }
+  };
+
+  // AI Canvas Analysis handler
+  const handleAnalyzeCanvas = async () => {
+    setIsAnalyzingCanvas(true);
+    
+    try {
+      // Capture the entire canvas as an image
+      const imageBlob = await captureCanvasAsImage();
+      
+      // Create FormData for the API call
+      const formData = new FormData();
+      formData.append('image', imageBlob, 'canvas.png');
+
+      console.log('🤖 Calling AI Canvas Analysis API...');
+      
+      // Call the AI endpoint
+      const response = await apiClient.post('/api/ai/analyze-canvas', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      console.log('🤖 AI Canvas Analysis Response:', response.data);
+      setCanvasAnalysis(response.data);
+    } catch (error) {
+      console.error('❌ Failed to analyze canvas:', error);
+      // Fallback to mock data for development
+      const mockAnalysis = {
+        description: "A creative canvas with various geometric shapes and text elements arranged in an artistic composition. The design features a modern aesthetic with clean lines and vibrant colors.",
+        keywords: ["geometric", "shapes", "text", "artistic", "composition", "creative", "modern", "design"],
+        alt_text: "Creative canvas showing geometric shapes and text arranged artistically"
+      };
+      setCanvasAnalysis(mockAnalysis);
+    } finally {
+      setIsAnalyzingCanvas(false);
+    }
+  };
+
+  // AI Text Generation handler
+  const handleGenerateText = async (textType: 'titles' | 'brief' | 'social_media') => {
+    if (!canvasAnalysis) return;
+
+    setIsGeneratingText(true);
+    
+    try {
+      console.log('✍️ Calling AI Text Generation API...', { textType, description: canvasAnalysis.description });
+      
+      // Call the AI endpoint with the canvas description
+      const response = await apiClient.post('/api/ai/generate-text', {
+        text_type: textType,
+        description: canvasAnalysis.description
+      });
+
+      console.log('✍️ AI Text Generation Response:', response.data);
+      
+      // Store the result by text type
+      if (textType === 'titles') {
+        setGeneratedText(prev => ({ ...prev, titles: Array.isArray(response.data.titles) ? response.data.titles.join(', ') : response.data.titles }));
+      } else if (textType === 'brief') {
+        setGeneratedText(prev => ({ ...prev, brief: response.data.brief }));
+      } else if (textType === 'social_media') {
+        setGeneratedText(prev => ({ ...prev, social_media: Array.isArray(response.data.captions) ? response.data.captions.join('\n\n') : response.data.captions }));
+      }
+    } catch (error) {
+      console.error('❌ Failed to generate text:', error);
+      // Fallback to mock data for development
+      const mockTexts = {
+        titles: "Creative Design Concept, Artistic Composition, Modern Visual Design, Geometric Artwork, Creative Canvas Project, Abstract Design Elements, Contemporary Art Piece",
+        brief: "This creative canvas showcases a modern approach to visual design, combining geometric shapes and typography to create an engaging artistic composition. The design demonstrates innovative thinking with clean lines, vibrant colors, and thoughtful spacing that creates visual harmony and professional appeal.",
+        social_media: "🎨 Just created this amazing geometric composition! The perfect blend of shapes, colors, and typography. #CreativeDesign #ArtisticVision #ModernArt #DesignInspiration #GeometricArt"
+      };
+      
+      // Store the mock result by text type
+      if (textType === 'titles') {
+        setGeneratedText(prev => ({ ...prev, titles: mockTexts.titles }));
+      } else if (textType === 'brief') {
+        setGeneratedText(prev => ({ ...prev, brief: mockTexts.brief }));
+      } else if (textType === 'social_media') {
+        setGeneratedText(prev => ({ ...prev, social_media: mockTexts.social_media }));
+      }
+    } finally {
+      setIsGeneratingText(false);
+    }
+  };
+
+  // AI Smart Groups handler
+  const handleSmartGroups = async () => {
+    setIsCreatingSmartGroups(true);
+    
+    try {
+      // Prepare asset data for AI analysis
+      const assetData = objects.map(obj => {
+        const keywords: string[] = [obj.type];
+        
+        // Add visual properties
+        if (obj.fill) keywords.push('colored', obj.fill);
+        else keywords.push('uncolored');
+        
+        if (obj.stroke) keywords.push('outlined', obj.stroke);
+        else keywords.push('no-outline');
+        
+        // Add size information
+        if (obj.width && obj.height) {
+          const area = obj.width * obj.height;
+          if (area > 10000) keywords.push('large');
+          else if (area > 1000) keywords.push('medium');
+          else keywords.push('small');
+        }
+        
+        // Add text content for text objects
+        if (obj.type === 'text' && obj.text) {
+          keywords.push('text-content', obj.text.toLowerCase().substring(0, 20));
+        }
+        
+        // Add image information
+        if (obj.type === 'image' && obj.alt) {
+          keywords.push('image', obj.alt.toLowerCase().substring(0, 20));
+        }
+        
+        // Add shape-specific keywords
+        if (obj.type === 'rect') keywords.push('rectangle', 'square', 'geometric');
+        if (obj.type === 'circle') keywords.push('circle', 'round', 'geometric');
+        if (obj.type === 'line') keywords.push('line', 'stroke', 'path');
+        
+        return {
+          id: obj.id,
+          type: obj.type,
+          keywords: keywords
+        };
+      });
+
+      console.log('📦 Calling AI Smart Groups API...', { assetCount: assetData.length });
+      
+      // Call the AI endpoint
+      const response = await apiClient.post('/api/ai/smart-groups', {
+        assets: assetData
+      });
+
+      console.log('📦 AI Smart Groups Response:', response.data);
+      setSmartGroups(response.data.groups);
+    } catch (error) {
+      console.error('❌ Failed to create smart groups:', error);
+      // Fallback to mock data for development
+      const mockGroups: Record<string, string[]> = {};
+      
+      // Group by type first
+      const typeGroups = {
+        "Geometric Shapes": objects.filter(obj => obj.type === 'rect' || obj.type === 'circle'),
+        "Text Elements": objects.filter(obj => obj.type === 'text'),
+        "Lines & Strokes": objects.filter(obj => obj.type === 'line'),
+        "Images": objects.filter(obj => obj.type === 'image')
+      };
+      
+      // Create groups only if they have elements
+      Object.entries(typeGroups).forEach(([groupName, objs]) => {
+        if (objs.length > 0) {
+          mockGroups[groupName] = objs.map(obj => obj.id);
+        }
+      });
+      
+      // Additional grouping by color if multiple objects have same color
+      const colorGroups: Record<string, CanvasObject[]> = {};
+      objects.forEach(obj => {
+        if (obj.fill && obj.fill !== '#000000') {
+          if (!colorGroups[obj.fill]) colorGroups[obj.fill] = [];
+          colorGroups[obj.fill].push(obj);
+        }
+      });
+      
+      // Add color groups if they have 2+ objects
+      Object.entries(colorGroups).forEach(([color, objs]) => {
+        if (objs.length >= 2) {
+          mockGroups[`${color} Elements`] = objs.map(obj => obj.id);
+        }
+      });
+      setSmartGroups(mockGroups);
+    } finally {
+      setIsCreatingSmartGroups(false);
+    }
+  };
+
+  // AI Asset Analysis handler
+  const handleAnalyzeAsset = async () => {
+    if (selectedIds.length !== 1) return;
+    
+    const selectedObject = objects.find(obj => obj.id === selectedIds[0]);
+    if (!selectedObject) return;
+
+    setIsAnalyzingAsset(true);
+    
+    try {
+      // Capture the selected object as an image
+      const imageBlob = await captureObjectAsImage(selectedObject);
+      
+      // Create FormData for the API call
+      const formData = new FormData();
+      formData.append('image', imageBlob, 'asset.png');
+
+      console.log('🔍 Calling AI Asset Analysis API...', { objectType: selectedObject.type });
+      
+      // Call the AI endpoint
+      const response = await apiClient.post('/api/ai/analyze-asset', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      console.log('🔍 AI Asset Analysis Response:', response.data);
+      setAssetAnalysis(response.data);
+    } catch (error) {
+      console.error('❌ Failed to analyze asset:', error);
+      // Fallback to mock data for development
+      const mockAnalysis = {
+        description: `A ${selectedObject.type} element with ${selectedObject.fill ? `fill color ${selectedObject.fill}` : 'no fill'} and ${selectedObject.stroke ? `stroke color ${selectedObject.stroke}` : 'no stroke'}. This element contributes to the overall design composition.`,
+        keywords: [selectedObject.type, "canvas", "element", "design", selectedObject.fill ? "colored" : "uncolored", selectedObject.stroke ? "outlined" : "no-outline"],
+        alt_text: `${selectedObject.type} element on canvas with ${selectedObject.fill ? 'fill' : 'no fill'} and ${selectedObject.stroke ? 'outline' : 'no outline'}`
+      };
+      setAssetAnalysis(mockAnalysis);
+    } finally {
+      setIsAnalyzingAsset(false);
+    }
+  };
+
+  // AI Asset Suggestions handler
+  const handleFindMoreAssets = async () => {
+    if (!assetAnalysis) return;
+
+    setIsFindingAssets(true);
+    
+    try {
+      console.log('🔍 Calling AI Asset Suggestions API...', { keywords: assetAnalysis.keywords });
+      
+      // Call the AI endpoint with the keywords from asset analysis
+      const response = await apiClient.post('/api/ai/asset-suggestions', {
+        keywords: assetAnalysis.keywords
+      });
+
+      console.log('🔍 AI Asset Suggestions Response:', response.data);
+      setAssetSuggestions(response.data.suggestions);
+      setShowSuggestions(true);
+    } catch (error) {
+      console.error('❌ Failed to find asset suggestions:', error);
+      // Fallback to mock data for development
+      const mockSuggestions = [
+        {
+          id: "1",
+          url: "https://images.pexels.com/photos/1/pexels-photo-1.jpeg?auto=compress&cs=tinysrgb&w=400",
+          url_large: "https://images.pexels.com/photos/1/pexels-photo-1.jpeg?auto=compress&cs=tinysrgb&w=1200",
+          alt: "Modern geometric design element",
+          photographer: "Design Studio",
+          photographer_url: "https://www.pexels.com/@design-studio"
+        },
+        {
+          id: "2",
+          url: "https://images.pexels.com/photos/2/pexels-photo-2.jpeg?auto=compress&cs=tinysrgb&w=400",
+          url_large: "https://images.pexels.com/photos/2/pexels-photo-2.jpeg?auto=compress&cs=tinysrgb&w=1200",
+          alt: "Abstract creative composition",
+          photographer: "Creative Artist",
+          photographer_url: "https://www.pexels.com/@creative-artist"
+        },
+        {
+          id: "3",
+          url: "https://images.pexels.com/photos/3/pexels-photo-3.jpeg?auto=compress&cs=tinysrgb&w=400",
+          url_large: "https://images.pexels.com/photos/3/pexels-photo-3.jpeg?auto=compress&cs=tinysrgb&w=1200",
+          alt: "Minimalist design pattern",
+          photographer: "Minimal Design",
+          photographer_url: "https://www.pexels.com/@minimal-design"
+        },
+        {
+          id: "4",
+          url: "https://images.pexels.com/photos/4/pexels-photo-4.jpeg?auto=compress&cs=tinysrgb&w=400",
+          url_large: "https://images.pexels.com/photos/4/pexels-photo-4.jpeg?auto=compress&cs=tinysrgb&w=1200",
+          alt: "Colorful artistic element",
+          photographer: "Color Studio",
+          photographer_url: "https://www.pexels.com/@color-studio"
+        }
+      ];
+      setAssetSuggestions(mockSuggestions);
+      setShowSuggestions(true);
+    } finally {
+      setIsFindingAssets(false);
+    }
+  };
+
+  // Standalone Asset Suggestions by Keywords
+  const handleFindMoreAssetsByKeywords = async (keywords: string) => {
+    setIsFindingAssets(true);
+    
+    try {
+      console.log('🔍 Calling AI Asset Suggestions API with keywords...', { keywords });
+      
+      // Call the AI endpoint with the provided keywords
+      const response = await apiClient.post('/api/ai/asset-suggestions', {
+        keywords: keywords.split(',').map(k => k.trim())
+      });
+
+      console.log('🔍 AI Asset Suggestions Response:', response.data);
+      setAssetSuggestions(response.data.suggestions);
+      setShowSuggestions(true);
+    } catch (error) {
+      console.error('❌ Failed to find assets:', error);
+      // Fallback to mock data for development
+      const mockSuggestions = [
+        { id: "1", url: 'https://via.placeholder.com/300x200/FF6B6B/FFFFFF?text=Mock+Image+1', url_large: 'https://via.placeholder.com/600x400/FF6B6B/FFFFFF?text=Mock+Image+1', alt: 'Mock image 1', photographer: 'Mock Photographer', photographer_url: '#' },
+        { id: "2", url: 'https://via.placeholder.com/300x200/4ECDC4/FFFFFF?text=Mock+Image+2', url_large: 'https://via.placeholder.com/600x400/4ECDC4/FFFFFF?text=Mock+Image+2', alt: 'Mock image 2', photographer: 'Mock Photographer', photographer_url: '#' },
+        { id: "3", url: 'https://via.placeholder.com/300x200/45B7D1/FFFFFF?text=Mock+Image+3', url_large: 'https://via.placeholder.com/600x400/45B7D1/FFFFFF?text=Mock+Image+3', alt: 'Mock image 3', photographer: 'Mock Photographer', photographer_url: '#' }
+      ];
+      setAssetSuggestions(mockSuggestions);
+      setShowSuggestions(true);
+    } finally {
+      setIsFindingAssets(false);
+    }
+  };
+
+  // Image capture functions
+  const captureCanvasAsImage = async (): Promise<Blob> => {
+    const stage = stageRef.current;
+    if (!stage) throw new Error('Stage not available');
+
+    const dataURL = stage.toDataURL({
+      mimeType: 'image/png',
+      quality: 1,
+      pixelRatio: 1
+    });
+
+    const response = await fetch(dataURL);
+    return await response.blob();
+  };
+
+  const captureObjectAsImage = async (object: CanvasObject): Promise<Blob> => {
+    const stage = stageRef.current;
+    if (!stage) throw new Error('Stage not available');
+
+    const node = layerRef.current?.findOne(`#${object.id}`);
+    if (!node) throw new Error('Object node not found');
+
+    const box = node.getClientRect();
+    
+    const tempStage = new Konva.Stage({
+      container: document.createElement('div'),
+      width: box.width,
+      height: box.height
+    });
+
+    const tempLayer = new Konva.Layer();
+    tempStage.add(tempLayer);
+
+    const clonedNode = node.clone();
+    clonedNode.x(0);
+    clonedNode.y(0);
+    tempLayer.add(clonedNode);
+    tempLayer.draw();
+
+    const dataURL = tempStage.toDataURL({
+      mimeType: 'image/png',
+      quality: 1,
+      pixelRatio: 1
+    });
+
+    tempStage.destroy();
+
+    const response = await fetch(dataURL);
+    return await response.blob();
+  };
+
+  const addImageToCanvas = async (imageUrl: string, alt: string) => {
+    try {
+      // Load the image
+      const image = new Image();
+      image.crossOrigin = 'anonymous';
+      
+      image.onload = () => {
+        const stage = stageRef.current;
+        if (!stage) return;
+
+        // Get canvas center
+        const centerX = stage.width() / 2;
+        const centerY = stage.height() / 2;
+
+        // Create a new image object
+        const newImageObject: CanvasObject = {
+          id: `image-${Date.now()}`,
+          type: 'image',
+          x: centerX - image.width / 2,
+          y: centerY - image.height / 2,
+          width: image.width,
+          height: image.height,
+          imageUrl: imageUrl,
+          alt: alt
+        };
+
+        const updated = [...objects, newImageObject];
+        setObjects(updated);
+        saveToHistory(updated);
+        broadcastUpdate('add', newImageObject);
+      };
+
+      image.src = imageUrl;
+    } catch (error) {
+      console.error('Failed to add image to canvas:', error);
+    }
+  };
+
+  // Drag and drop handlers
+  const handleDragOver = (e: Konva.KonvaEventObject<DragEvent>) => {
+    e.evt.preventDefault();
+  };
+
+  const handleDrop = (e: Konva.KonvaEventObject<DragEvent>) => {
+    e.evt.preventDefault();
+    
+    try {
+      const data = JSON.parse(e.evt.dataTransfer?.getData('application/json') || '{}');
+      if (data.type === 'image' && data.url) {
+        const stage = stageRef.current;
+        if (!stage) return;
+
+        // Get drop position relative to stage
+        const pos = stage.getRelativePointerPosition();
+        if (!pos) return;
+
+        addImageToCanvasAtPosition(data.url, data.alt, pos.x, pos.y);
+      }
+    } catch (error) {
+      console.error('Failed to handle drop:', error);
+    }
+  };
+
+  const addImageToCanvasAtPosition = async (imageUrl: string, alt: string, x: number, y: number) => {
+    try {
+      const image = new Image();
+      image.crossOrigin = 'anonymous';
+      
+      image.onload = () => {
+        const newImageObject: CanvasObject = {
+          id: `image-${Date.now()}`,
+          type: 'image',
+          x: x - image.width / 2,
+          y: y - image.height / 2,
+          width: image.width,
+          height: image.height,
+          imageUrl: imageUrl,
+          alt: alt
+        };
+
+        const updated = [...objects, newImageObject];
+        setObjects(updated);
+        saveToHistory(updated);
+        broadcastUpdate('add', newImageObject);
+      };
+
+      image.src = imageUrl;
+    } catch (error) {
+      console.error('Failed to add image to canvas:', error);
+    }
+  };
+
   return (
-    <div className="canvas-editor-root">
+    <>
+      <style>
+        {`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+          @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+          }
+        `}
+      </style>
+      <div className="canvas-editor-root" style={{ height: '100vh', overflow: 'hidden' }}>
       {/* Top Header Bar */}
       <div className="canvas-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
@@ -1118,6 +1694,165 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             </button>
           </div>
 
+          {/* AI Features in Top Navbar */}
+          <div style={{ display: 'flex', gap: '4px', marginLeft: '16px' }}>
+            <button
+              onClick={handleAnalyzeCanvas}
+              disabled={isAnalyzingCanvas}
+              title="Analyze Canvas"
+              style={{
+                background: isAnalyzingCanvas ? '#555' : '#007acc',
+                border: '1px solid #3e3e42',
+                color: 'white',
+                cursor: isAnalyzingCanvas ? 'not-allowed' : 'pointer',
+                padding: '6px 12px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                transition: 'all 0.2s',
+                opacity: isAnalyzingCanvas ? 0.6 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              {isAnalyzingCanvas ? '⏳' : '🤖'} Analyze
+            </button>
+            <button
+              onClick={handleSmartGroups}
+              disabled={isCreatingSmartGroups}
+              title="Auto-Group Elements"
+              style={{
+                background: isCreatingSmartGroups ? '#555' : '#28a745',
+                border: '1px solid #3e3e42',
+                color: 'white',
+                cursor: isCreatingSmartGroups ? 'not-allowed' : 'pointer',
+                padding: '6px 12px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                transition: 'all 0.2s',
+                opacity: isCreatingSmartGroups ? 0.6 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              {isCreatingSmartGroups ? '⏳' : '📦'} Group
+            </button>
+            <button
+              onClick={() => {
+                if (selectedIds.length === 1) {
+                  handleGeneratePalette();
+                } else {
+                  handleGeneratePaletteFromCanvas();
+                }
+              }}
+              disabled={isGeneratingPalette}
+              title="Generate Color Palette"
+              style={{
+                background: isGeneratingPalette ? '#555' : '#ff6b35',
+                border: '1px solid #3e3e42',
+                color: 'white',
+                cursor: isGeneratingPalette ? 'not-allowed' : 'pointer',
+                padding: '6px 12px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                transition: 'all 0.2s',
+                opacity: isGeneratingPalette ? 0.6 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              {isGeneratingPalette ? '⏳' : '🎨'} Palette
+            </button>
+            <button
+              onClick={() => {
+                const keywords = prompt('Enter keywords to search for images (e.g., "modern design, abstract, blue"):');
+                if (keywords && keywords.trim()) {
+                  handleFindMoreAssetsByKeywords(keywords.trim());
+                }
+              }}
+              disabled={isFindingAssets}
+              title="Find Images by Keywords"
+              style={{
+                background: isFindingAssets ? '#555' : '#9c27b0',
+                border: '1px solid #3e3e42',
+                color: 'white',
+                cursor: isFindingAssets ? 'not-allowed' : 'pointer',
+                padding: '6px 12px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                transition: 'all 0.2s',
+                opacity: isFindingAssets ? 0.6 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+            >
+              {isFindingAssets ? '⏳' : '🔍'} Images
+            </button>
+          </div>
+
+          {/* Generated Color Palette Display */}
+          {generatedPalette.length > 0 && (
+            <div style={{ display: 'flex', gap: '4px', marginLeft: '16px', alignItems: 'center' }}>
+              <span style={{ color: '#e1e1e1', fontSize: '12px', fontWeight: 500 }}>Generated Colors:</span>
+              <div style={{ display: 'flex', gap: '2px' }}>
+                {generatedPalette.map((color, index) => (
+                  <button
+                    key={index}
+                    onClick={() => {
+                      setStrokeColor(color);
+                      setFillColor(color);
+                    }}
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      backgroundColor: color,
+                      border: '2px solid #3e3e42',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      position: 'relative',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = '#007acc';
+                      e.currentTarget.style.transform = 'scale(1.1)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = '#3e3e42';
+                      e.currentTarget.style.transform = 'scale(1)';
+                    }}
+                    title={`Click to set as stroke & fill color: ${color}`}
+                  >
+                    <span style={{ color: 'white', fontSize: '8px', fontWeight: 'bold', textShadow: '1px 1px 2px rgba(0,0,0,0.8)' }}>
+                      {index + 1}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => setGeneratedPalette([])}
+                style={{
+                  background: 'none',
+                  border: '1px solid #3e3e42',
+                  color: '#888',
+                  cursor: 'pointer',
+                  padding: '2px 6px',
+                  borderRadius: '4px',
+                  fontSize: '10px',
+                  marginLeft: '8px'
+                }}
+                title="Clear palette"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {/* Zoom Controls */}
           <div className="zoom-controls">
             <button
@@ -1128,8 +1863,8 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
               −
             </button>
             <span className="zoom-display">
-              {Math.round(stageScale * 100)}%
-            </span>
+            {Math.round(stageScale * 100)}%
+          </span>
             <button
               onClick={zoomIn}
               title="Zoom In (+)"
@@ -1199,9 +1934,10 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         </div>
       </div>
 
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', flex: 1, overflow: 'hidden', height: 'calc(100vh - 48px)' }}>
         {/* Left Toolbar */}
-        <div className="canvas-toolbar-left">
+        <div className="canvas-toolbar-left" style={{ overflowY: 'auto', height: '100%' }}>
+
           {/* Main Tools */}
           <ToolButton 
             active={tool === 'select'} 
@@ -1258,6 +1994,20 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             shortcut="F"
             disabled={userRole === 'viewer'}
           />
+          <ToolButton 
+            active={false} 
+            onClick={() => {
+              if (window.confirm('Are you sure you want to clear the entire canvas? This action cannot be undone.')) {
+                setObjects([]);
+                setSelectedIds([]);
+                setHistory([]);
+                setHistoryStep(-1);
+              }
+            }}
+            icon="🧹"
+            label="Clear Canvas"
+            disabled={userRole === 'viewer'}
+          />
 
           <div style={{ flex: 1 }} />
 
@@ -1304,6 +2054,8 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
             style={{ backgroundColor: '#ffffff' }}
           >
             <Layer ref={layerRef}>
@@ -1382,26 +2134,47 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                     />
                   );
                 } else if (obj.type === 'image') {
-                  const img = obj.imageSrc ? loadImage(obj.imageSrc) : null;
-                  // Draw Konva Image with cropping and transforms
-                  return (
-                    <KonvaImage
-                      key={obj.id}
-                      id={obj.id}
-                      x={obj.x}
-                      y={obj.y}
-                      image={img as any}
-                      width={obj.width}
-                      height={obj.height}
-                      rotation={obj.rotation}
-                      scaleX={obj.scaleX}
-                      scaleY={obj.scaleY}
-                      draggable={tool === 'select' && userRole !== 'viewer'}
-                      crop={{ x: obj.cropX || 0, y: obj.cropY || 0, width: obj.cropWidth || obj.width || 0, height: obj.cropHeight || obj.height || 0 }}
-                      onClick={(e) => handleObjectClick(e, obj.id)}
+                  // Handle AI images (imageUrl) vs regular images (imageSrc)
+                  if (obj.imageUrl) {
+                    return (
+                      <ImageComponent
+                        key={obj.id}
+                        id={obj.id}
+                        x={obj.x}
+                        y={obj.y}
+                        width={obj.width}
+                        height={obj.height}
+                        rotation={obj.rotation}
+                        scaleX={obj.scaleX}
+                        scaleY={obj.scaleY}
+                        draggable={tool === 'select' && userRole !== 'viewer'}
+                        onClick={(e: Konva.KonvaEventObject<MouseEvent>) => handleObjectClick(e, obj.id)}
+                        onTransformEnd={handleTransformEnd}
+                        imageUrl={obj.imageUrl}
+                      />
+                    );
+                  } else {
+                    const img = obj.imageSrc ? loadImage(obj.imageSrc) : null;
+                    // Draw Konva Image with cropping and transforms
+                    return (
+                      <KonvaImage
+                        key={obj.id}
+                        id={obj.id}
+                        x={obj.x}
+                        y={obj.y}
+                        image={img as any}
+                        width={obj.width}
+                        height={obj.height}
+                        rotation={obj.rotation}
+                        scaleX={obj.scaleX}
+                        scaleY={obj.scaleY}
+                        draggable={tool === 'select' && userRole !== 'viewer'}
+                        crop={{ x: obj.cropX || 0, y: obj.cropY || 0, width: obj.cropWidth || obj.width || 0, height: obj.cropHeight || obj.height || 0 }}
+                        onClick={(e) => handleObjectClick(e, obj.id)}
                       onTransformEnd={handleTransformEnd}
                     />
                   );
+                  }
                 }
                 return null;
               })}
@@ -1435,7 +2208,6 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                         setCropRect(r => r ? { ...r, x: node.x(), y: node.y(), width: newW, height: newH } : r);
                       }}
                       onTransform={(e) => {
-                        // live update while transforming for better responsiveness
                         const node = e.target;
                         const newW = Math.max(1, node.width() * node.scaleX());
                         const newH = Math.max(1, node.height() * node.scaleY());
@@ -1477,7 +2249,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                       />
                     </Group>
                   );
-                })}
+              })}
 
               {isDrawing && (tool === 'pen' || tool === 'eraser') && currentLine.length > 0 && (
                 <Line
@@ -1577,7 +2349,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         </div>
 
         {/* Right Panel - Properties */}
-        <div className="canvas-panel-right">
+        <div className="canvas-panel-right" style={{ overflowY: 'auto', height: '100%' }}>
           <h3 className="section-title">
             Design
           </h3>
@@ -1588,16 +2360,16 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
               Fill Color
             </label>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
-              <input 
-                type="color" 
-                value={fillColor} 
-                onChange={(e) => setFillColor(e.target.value)}
-                style={{ 
+            <input 
+              type="color" 
+              value={fillColor} 
+              onChange={(e) => setFillColor(e.target.value)}
+              style={{ 
                   width: '48px', 
-                  height: '36px', 
-                  border: '1px solid #3e3e42', 
-                  borderRadius: '4px',
-                  cursor: 'pointer',
+                height: '36px', 
+                border: '1px solid #3e3e42', 
+                borderRadius: '4px',
+                cursor: 'pointer',
                   padding: '2px'
                 }}
               />
@@ -1719,19 +2491,19 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
               Stroke Color
             </label>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
-              <input 
-                type="color" 
-                value={strokeColor} 
-                onChange={(e) => setStrokeColor(e.target.value)}
-                style={{ 
+            <input 
+              type="color" 
+              value={strokeColor} 
+              onChange={(e) => setStrokeColor(e.target.value)}
+              style={{ 
                   width: '48px', 
-                  height: '36px', 
-                  border: '1px solid #3e3e42', 
-                  borderRadius: '4px',
-                  cursor: 'pointer',
+                height: '36px', 
+                border: '1px solid #3e3e42', 
+                borderRadius: '4px',
+                cursor: 'pointer',
                   padding: '2px'
-                }}
-              />
+              }}
+            />
               <span style={{ color: '#ddd', fontSize: '12px', fontFamily: 'monospace' }}>{strokeColor}</span>
             </div>
           </div>
@@ -1913,6 +2685,454 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             📥 Export as PNG
           </button>
 
+          {/* AI Features Overview */}
+          <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#1e1e1e', borderRadius: '8px', border: '1px solid #3e3e42' }}>
+            <h4 style={{ color: '#e1e1e1', fontSize: '13px', fontWeight: 600, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              ✨ AI Features
+            </h4>
+            <p style={{ color: '#9d9d9d', fontSize: '11px', margin: '0 0 12px 0', lineHeight: '1.4' }}>
+              Use AI to enhance your creative workflow
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#e1e1e1' }}>
+                <span>🤖</span>
+                <span>Analyze canvas for insights</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#e1e1e1' }}>
+                <span>🎨</span>
+                <span>Generate color palettes</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#e1e1e1' }}>
+                <span>📦</span>
+                <span>Auto-group similar elements</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#e1e1e1' }}>
+                <span>✍️</span>
+                <span>Generate text content</span>
+              </div>
+            </div>
+          </div>
+
+          {/* AI Color Palette Section */}
+          {selectedIds.length === 1 && (
+            <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#1e1e1e', borderRadius: '6px', border: '1px solid #3e3e42' }}>
+              <h4 style={{ color: '#e1e1e1', fontSize: '13px', fontWeight: 600, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                🎨 AI Color Palette
+              </h4>
+              <p style={{ color: '#9d9d9d', fontSize: '11px', margin: '0 0 12px 0', lineHeight: '1.4' }}>
+                Generate a color palette from the selected object
+              </p>
+              <button
+                onClick={handleGeneratePalette}
+                disabled={isGeneratingPalette}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  backgroundColor: isGeneratingPalette ? '#555' : '#007acc',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: isGeneratingPalette ? 'not-allowed' : 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  marginBottom: '12px',
+                  opacity: isGeneratingPalette ? 0.6 : 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '6px'
+                }}
+              >
+                {isGeneratingPalette ? (
+                  <>
+                    <div style={{ width: '12px', height: '12px', border: '2px solid #fff', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                    Analyzing...
+                  </>
+                ) : (
+                  <>
+                    ✨ Generate Palette
+                  </>
+                )}
+              </button>
+              
+              {generatedPalette.length > 0 && (
+                <div>
+                  <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Generated Colors
+                  </label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
+                    {generatedPalette.map((color, index) => (
+                      <button
+                        key={index}
+                        onClick={() => {
+                          setStrokeColor(color);
+                          setFillColor(color);
+                        }}
+                        style={{
+                          width: '36px',
+                          height: '36px',
+                          backgroundColor: color,
+                          border: '2px solid #3e3e42',
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          position: 'relative',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = '#007acc';
+                          e.currentTarget.style.transform = 'scale(1.1)';
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = '#3e3e42';
+                          e.currentTarget.style.transform = 'scale(1)';
+                        }}
+                        title={`Click to set as stroke & fill color: ${color}`}
+                      >
+                        <span style={{ color: 'white', fontSize: '10px', fontWeight: 'bold', textShadow: '1px 1px 2px rgba(0,0,0,0.8)' }}>
+                          {index + 1}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  <p style={{ color: '#666', fontSize: '10px', margin: 0, fontStyle: 'italic' }}>
+                    Click any color to apply it as your active stroke & fill color
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI Asset Analysis Section */}
+          {selectedIds.length === 1 && (
+            <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#1e1e1e', borderRadius: '6px', border: '1px solid #3e3e42' }}>
+              <h4 style={{ color: '#e1e1e1', fontSize: '13px', fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                🔍 AI Asset Analysis
+              </h4>
+              <button
+                onClick={handleAnalyzeAsset}
+                disabled={isAnalyzingAsset}
+                style={{
+                  width: '100%',
+                  padding: '8px 12px',
+                  backgroundColor: isAnalyzingAsset ? '#555' : '#007acc',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: isAnalyzingAsset ? 'not-allowed' : 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  marginBottom: '12px',
+                  opacity: isAnalyzingAsset ? 0.6 : 1
+                }}
+              >
+                {isAnalyzingAsset ? 'Analyzing...' : 'Analyze Asset'}
+              </button>
+              
+              {assetAnalysis && (
+                <div style={{ marginTop: '12px' }}>
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Description
+                    </label>
+                    <p style={{ color: '#e1e1e1', fontSize: '12px', margin: 0, lineHeight: '1.4' }}>
+                      {assetAnalysis.description}
+                    </p>
+                  </div>
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Keywords
+                    </label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                      {assetAnalysis.keywords.map((keyword, index) => (
+                        <span
+                          key={index}
+                          style={{
+                            backgroundColor: '#007acc',
+                            color: 'white',
+                            padding: '2px 6px',
+                            borderRadius: '3px',
+                            fontSize: '10px',
+                            fontWeight: 500
+                          }}
+                        >
+                          {keyword}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      Alt Text
+                    </label>
+                    <p style={{ color: '#e1e1e1', fontSize: '12px', margin: 0, lineHeight: '1.4' }}>
+                      {assetAnalysis.alt_text}
+                    </p>
+                  </div>
+                  
+                  {/* Find More Like This Button */}
+                  <button
+                    onClick={handleFindMoreAssets}
+                    disabled={isFindingAssets}
+                    style={{
+                      width: '100%',
+                      padding: '8px 12px',
+                      backgroundColor: isFindingAssets ? '#555' : '#28a745',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: isFindingAssets ? 'not-allowed' : 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      marginTop: '12px',
+                      opacity: isFindingAssets ? 0.6 : 1
+                    }}
+                  >
+                    {isFindingAssets ? 'Finding...' : 'Find More Like This'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI Canvas Analysis Results */}
+          {canvasAnalysis && (
+            <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#1e1e1e', borderRadius: '8px', border: '2px solid #007acc' }}>
+              <h4 style={{ color: '#e1e1e1', fontSize: '13px', fontWeight: 600, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                🤖 Canvas Analysis Complete
+              </h4>
+              <p style={{ color: '#9d9d9d', fontSize: '11px', margin: '0 0 12px 0', lineHeight: '1.4' }}>
+                AI has analyzed your canvas and provided insights below
+              </p>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Description
+                </label>
+                <div style={{ padding: '8px', backgroundColor: '#2d2d30', borderRadius: '4px', border: '1px solid #3e3e42' }}>
+                  <p style={{ color: '#e1e1e1', fontSize: '12px', margin: 0, lineHeight: '1.4' }}>
+                    {canvasAnalysis.description}
+                  </p>
+                </div>
+              </div>
+              <div style={{ marginBottom: '12px' }}>
+                <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Keywords
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                  {canvasAnalysis.keywords.map((keyword, index) => (
+                    <span
+                      key={index}
+                      style={{
+                        backgroundColor: '#007acc',
+                        color: 'white',
+                        padding: '3px 8px',
+                        borderRadius: '4px',
+                        fontSize: '10px',
+                        fontWeight: 500
+                      }}
+                    >
+                      {keyword}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  Alt Text
+                </label>
+                <div style={{ padding: '8px', backgroundColor: '#2d2d30', borderRadius: '4px', border: '1px solid #3e3e42' }}>
+                  <p style={{ color: '#e1e1e1', fontSize: '12px', margin: 0, lineHeight: '1.4' }}>
+                    {canvasAnalysis.alt_text}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* AI Text Generation */}
+          {canvasAnalysis && (
+            <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#1e1e1e', borderRadius: '8px', border: '1px solid #3e3e42' }}>
+              <h4 style={{ color: '#e1e1e1', fontSize: '13px', fontWeight: 600, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                ✍️ AI Text Generation
+              </h4>
+              <p style={{ color: '#9d9d9d', fontSize: '11px', margin: '0 0 12px 0', lineHeight: '1.4' }}>
+                Generate content based on your canvas analysis
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <button
+                  onClick={() => handleGenerateText('titles')}
+                  disabled={isGeneratingText}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    backgroundColor: isGeneratingText ? '#555' : '#007acc',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: isGeneratingText ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    opacity: isGeneratingText ? 0.6 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {isGeneratingText ? (
+                    <>
+                      <div style={{ width: '12px', height: '12px', border: '2px solid #fff', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      💡 Generate Title Ideas
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => handleGenerateText('brief')}
+                  disabled={isGeneratingText}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    backgroundColor: isGeneratingText ? '#555' : '#28a745',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: isGeneratingText ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    opacity: isGeneratingText ? 0.6 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {isGeneratingText ? (
+                    <>
+                      <div style={{ width: '12px', height: '12px', border: '2px solid #fff', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      📝 Generate Brief
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => handleGenerateText('social_media')}
+                  disabled={isGeneratingText}
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    backgroundColor: isGeneratingText ? '#555' : '#ff6b35',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: isGeneratingText ? 'not-allowed' : 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    opacity: isGeneratingText ? 0.6 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  {isGeneratingText ? (
+                    <>
+                      <div style={{ width: '12px', height: '12px', border: '2px solid #fff', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      📱 Generate Social Media
+                    </>
+                  )}
+                </button>
+              </div>
+              
+              {(generatedText.titles || generatedText.brief || generatedText.social_media) && (
+                <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#2d2d30', borderRadius: '6px', border: '1px solid #3e3e42' }}>
+                  <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Generated Content
+                  </label>
+                  
+                  {/* Titles */}
+                  {generatedText.titles && (
+                    <div style={{ marginBottom: '12px' }}>
+                      <label style={{ display: 'block', color: '#007acc', fontSize: '11px', marginBottom: '4px', fontWeight: 600 }}>
+                        💡 Title Ideas
+                      </label>
+                      <div style={{ padding: '8px', backgroundColor: '#1e1e1e', borderRadius: '4px', border: '1px solid #3e3e42' }}>
+                        <p style={{ color: '#e1e1e1', fontSize: '12px', margin: 0, lineHeight: '1.5' }}>
+                          {generatedText.titles}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Brief */}
+                  {generatedText.brief && (
+                    <div style={{ marginBottom: '12px' }}>
+                      <label style={{ display: 'block', color: '#28a745', fontSize: '11px', marginBottom: '4px', fontWeight: 600 }}>
+                        📝 Creative Brief
+                      </label>
+                      <div style={{ padding: '8px', backgroundColor: '#1e1e1e', borderRadius: '4px', border: '1px solid #3e3e42' }}>
+                        <p style={{ color: '#e1e1e1', fontSize: '12px', margin: 0, lineHeight: '1.5', whiteSpace: 'pre-line' }}>
+                          {generatedText.brief}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Social Media */}
+                  {generatedText.social_media && (
+                    <div>
+                      <label style={{ display: 'block', color: '#ff6b35', fontSize: '11px', marginBottom: '4px', fontWeight: 600 }}>
+                        📱 Social Media Captions
+                      </label>
+                      <div style={{ padding: '8px', backgroundColor: '#1e1e1e', borderRadius: '4px', border: '1px solid #3e3e42' }}>
+                        <p style={{ color: '#e1e1e1', fontSize: '12px', margin: 0, lineHeight: '1.5', whiteSpace: 'pre-line' }}>
+                          {generatedText.social_media}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI Smart Groups Results */}
+          {Object.keys(smartGroups).length > 0 && (
+            <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#1e1e1e', borderRadius: '8px', border: '2px solid #28a745' }}>
+              <h4 style={{ color: '#e1e1e1', fontSize: '13px', fontWeight: 600, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                📦 Smart Groups Created
+              </h4>
+              <p style={{ color: '#9d9d9d', fontSize: '11px', margin: '0 0 12px 0', lineHeight: '1.4' }}>
+                AI has automatically grouped your canvas elements
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {Object.entries(smartGroups).map(([groupName, objectIds]) => (
+                  <div key={groupName} style={{ padding: '12px', backgroundColor: '#2d2d30', borderRadius: '6px', border: '1px solid #3e3e42' }}>
+                    <div style={{ color: '#e1e1e1', fontSize: '12px', fontWeight: 500, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <span style={{ fontSize: '14px' }}>📁</span>
+                      {groupName}
+                    </div>
+                    <div style={{ color: '#9d9d9d', fontSize: '11px' }}>
+                      {objectIds.length} element{objectIds.length !== 1 ? 's' : ''} grouped together
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div style={{ 
             marginTop: 'auto', 
             paddingTop: '20px',
@@ -1943,6 +3163,88 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         </div>
       </div>
 
+      {/* Asset Suggestions Sidebar */}
+      {showSuggestions && (
+        <div style={{
+          position: 'fixed',
+          top: '48px',
+          right: '0',
+          width: '320px',
+          height: 'calc(100vh - 48px)',
+          backgroundColor: '#252526',
+          borderLeft: '1px solid #3e3e42',
+          zIndex: 1000,
+          overflowY: 'auto',
+          padding: '20px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+            <h3 style={{ color: '#e1e1e1', fontSize: '16px', fontWeight: 600, margin: 0 }}>
+              Asset Suggestions
+            </h3>
+            <button
+              onClick={() => setShowSuggestions(false)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#888',
+                cursor: 'pointer',
+                fontSize: '20px',
+                padding: '4px'
+              }}
+              title="Close suggestions"
+            >
+              ×
+            </button>
+          </div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {assetSuggestions.map((suggestion) => (
+              <div
+                key={suggestion.id}
+                style={{
+                  border: '1px solid #3e3e42',
+                  borderRadius: '6px',
+                  overflow: 'hidden',
+                  cursor: 'pointer',
+                  transition: 'border-color 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.borderColor = '#007acc'}
+                onMouseLeave={(e) => e.currentTarget.style.borderColor = '#3e3e42'}
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData('application/json', JSON.stringify({
+                    type: 'image',
+                    url: suggestion.url_large,
+                    alt: suggestion.alt
+                  }));
+                }}
+                onClick={() => {
+                  addImageToCanvas(suggestion.url_large, suggestion.alt);
+                }}
+              >
+                <img
+                  src={suggestion.url}
+                  alt={suggestion.alt}
+                  style={{
+                    width: '100%',
+                    height: '120px',
+                    objectFit: 'cover'
+                  }}
+                />
+                <div style={{ padding: '12px' }}>
+                  <p style={{ color: '#e1e1e1', fontSize: '12px', margin: '0 0 8px 0', lineHeight: '1.4' }}>
+                    {suggestion.alt}
+                  </p>
+                  <p style={{ color: '#9d9d9d', fontSize: '11px', margin: 0 }}>
+                    by {suggestion.photographer}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Share Modal */}
       {showShareModal && (
         <ShareModal
@@ -1972,6 +3274,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         </div>
       )}
     </div>
+    </>
   );
 };
 

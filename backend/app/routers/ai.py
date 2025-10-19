@@ -81,7 +81,6 @@ def _call_gemini_text(prompt: str) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail=f"Gemini API or JSON parse failed: {e}")
 
 
-# USER STORY 3.1: AI Asset Analysis
 @router.post("/analyze-asset", response_model=Dict[str, Any])
 async def analyze_asset(
     image: UploadFile = File(...),
@@ -114,15 +113,14 @@ async def analyze_asset(
         raise HTTPException(status_code=502, detail=f"AI response format invalid: {e}")
 
 
-# USER STORY 3.1: AI Canvas Analysis
 @router.post("/analyze-canvas", response_model=Dict[str, Any])
 async def analyze_canvas(
-    screenshot: UploadFile = File(...),
+    image: UploadFile = File(...),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
     """Analyze entire canvas screenshot and return description and keywords"""
-    image_bytes = _read_image_bytes(screenshot)
+    image_bytes = _read_image_bytes(image)
     down_bytes, mime_type = _downscale_image(image_bytes, max_dim=1024)
     
     prompt = (
@@ -146,7 +144,6 @@ async def analyze_canvas(
         raise HTTPException(status_code=502, detail=f"AI response format invalid: {e}")
 
 
-# USER STORY 3.2: AI Color Palette Generation
 @router.post("/color-palette", response_model=Dict[str, List[str]])
 async def generate_color_palette(
     image: UploadFile = File(...),
@@ -180,7 +177,6 @@ async def generate_color_palette(
         raise HTTPException(status_code=502, detail=f"AI response format invalid: {e}")
 
 
-# USER STORY 3.3: AI Asset Suggestions
 @router.post("/asset-suggestions")
 async def get_asset_suggestions(
     request: Dict[str, List[str]], 
@@ -232,7 +228,6 @@ async def get_asset_suggestions(
         raise HTTPException(status_code=502, detail=f"Failed to fetch asset suggestions: {e}")
 
 
-# USER STORY 3.4: AI Text Generation
 @router.post("/generate-text", response_model=Dict[str, Any])
 async def generate_text(
     request: Dict[str, Any],
@@ -241,7 +236,7 @@ async def generate_text(
 ):
     """Generate project titles, briefs, or social media posts based on canvas analysis"""
     description = request.get("description", "")
-    text_type = request.get("type", "titles")  # titles, brief, social_media
+    text_type = request.get("text_type", request.get("type", "titles"))  # titles, brief, social_media
     
     if not description:
         raise HTTPException(status_code=400, detail="Description is required")
@@ -258,7 +253,6 @@ async def generate_text(
     return _call_gemini_text(prompts[text_type])
 
 
-# USER STORY 3.5: AI Smart Groups
 @router.post("/smart-groups", response_model=Dict[str, Any])
 async def create_smart_groups(
     request: Dict[str, Any],
