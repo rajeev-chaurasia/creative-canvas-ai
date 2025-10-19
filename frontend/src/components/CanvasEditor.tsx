@@ -2158,18 +2158,6 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             </button>
           )}
 
-          {lastSaved && !isSaving && (
-            <span style={{ fontSize: '11px', color: '#666' }}>
-              Saved {lastSaved.toLocaleTimeString()}
-            </span>
-          )}
-          
-          {isSaving && (
-            <span style={{ fontSize: '11px', color: '#4caf50' }}>
-              Saving...
-            </span>
-          )}
-          
           <button 
             onClick={handleManualSave}
             disabled={isSaving}
@@ -3463,6 +3451,26 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
           </div>
         </div>
       </div>
+
+      {/* Non-intrusive Save Status Indicator */}
+      {(lastSaved || isSaving) && (
+        <div
+          style={{
+            position: 'fixed',
+            right: 16,
+            bottom: showMobileBar ? 76 : 16,
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            color: '#e1e1e1',
+            padding: '6px 10px',
+            borderRadius: 8,
+            fontSize: '11px',
+            zIndex: 300
+          }}
+          aria-live="polite"
+        >
+          {isSaving ? 'Saving…' : `Saved ${lastSaved?.toLocaleTimeString()}`}
+        </div>
+      )}
 
       {generatedPalette.length > 0 && paletteAnchor && (
         <PalettePopover
