@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List
 import uuid as uuid_lib
+from datetime import datetime
 
 from .. import crud, schemas, models
 from ..database import get_db
@@ -9,7 +10,8 @@ from ..permissions import (
     require_permission,
     get_user_role,
     get_user_projects,
-    log_activity
+    log_activity,
+    can_access_via_link
 )
 from .auth import get_current_user
 
@@ -66,15 +68,41 @@ async def read_projects(
 
 @router.get("/{project_uuid}", response_model=schemas.Project)
 async def read_project(
-    project_uuid: str, 
+    project_uuid: str,
+    share_token: str = Query(None),
     db: Session = Depends(get_db), 
     current_user: models.User = Depends(get_current_user)
 ):
-    """Get a specific project by UUID (requires view permission)"""
-    project = await require_permission(project_uuid, current_user.id, db, "view")
+    """Get a specific project by UUID (requires view permission or valid share_token)"""
+    project = await require_permission(project_uuid, current_user.id, db, "view", share_token=share_token)
     
     # Add user's role to response
     role = await get_user_role(project_uuid, current_user.id, db)
+    
+    # If user accessed via link and doesn't already have explicit access, auto-add as viewer
+    if share_token and not role and (await can_access_via_link(project_uuid, share_token, db)):
+        # Auto-add user as viewer
+        new_share = models.ProjectShare(
+            project_id=project.id,
+            user_id=current_user.id,
+            role=models.ProjectRole.VIEWER,
+            invited_by=project.owner_id,
+            accepted_at=datetime.now()
+        )
+        db.add(new_share)
+        db.commit()
+        
+        # Log activity
+        await log_activity(
+            project_id=project.id,
+            user_id=current_user.id,
+            action="joined",
+            db=db,
+            details={"via_public_link": True}
+        )
+        
+        role = models.ProjectRole.VIEWER
+    
     project.user_role = role.value if role else None
     
     return project

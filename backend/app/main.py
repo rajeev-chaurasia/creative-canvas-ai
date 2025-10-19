@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import socketio
 import os
 from dotenv import load_dotenv
-from .routers import auth, projects, sharing, ai, export_pdf
+from .routers import auth, projects, sharing, ai, export_pdf, public
 from .database import engine, Base
 from .socket_handler import sio
 
@@ -38,6 +38,7 @@ app.include_router(projects.router)
 app.include_router(sharing.router)
 app.include_router(ai.router)
 app.include_router(export_pdf.router)
+app.include_router(public.router)  # Public routes (no auth required)
 
 @app.get("/")
 def read_root():

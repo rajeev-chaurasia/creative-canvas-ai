@@ -56,14 +56,36 @@ async def get_project_by_uuid(
     return db.query(Project).filter(Project.uuid == project_uuid).first()
 
 
+async def can_access_via_link(
+    project_uuid: str,
+    share_token: Optional[str],
+    db: Session
+) -> bool:
+    """Check if user can access project via public share link"""
+    if not share_token:
+        return False
+    
+    project = await get_project_by_uuid(project_uuid, db)
+    if not project or not project.public_share_token:
+        return False
+    
+    return project.public_share_token == share_token
+
+
 async def can_view(
     project_uuid: str, 
     user_id: int, 
-    db: Session
+    db: Session,
+    share_token: Optional[str] = None
 ) -> bool:
-    """Check if user can view project (any role)"""
+    """Check if user can view project (any role or via link)"""
+    # Check if user has explicit access
     role = await get_user_role(project_uuid, user_id, db)
-    return role is not None
+    if role is not None:
+        return True
+    
+    # Check if user can access via link (anyone with link can view)
+    return await can_access_via_link(project_uuid, share_token, db)
 
 
 async def can_edit(
@@ -110,7 +132,8 @@ async def require_permission(
     project_uuid: str,
     user_id: int,
     db: Session,
-    permission: str = "view"
+    permission: str = "view",
+    share_token: Optional[str] = None
 ) -> Project:
     """
     Require specific permission and return project.
@@ -118,11 +141,18 @@ async def require_permission(
     
     Args:
         permission: "view", "edit", "share", "delete", or "manage"
+        share_token: optional token for link-based access (only for "view" permission)
     """
     
     project = await get_project_by_uuid(project_uuid, db)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+    
+    # For view permission, also check link access
+    if permission == "view" and share_token:
+        has_link_access = await can_access_via_link(project_uuid, share_token, db)
+        if has_link_access:
+            return project
     
     permission_checks = {
         "view": can_view,
@@ -136,7 +166,11 @@ async def require_permission(
     if not check_func:
         raise ValueError(f"Invalid permission type: {permission}")
     
-    has_permission = await check_func(project_uuid, user_id, db)
+    # For view, pass share_token to can_view
+    if permission == "view":
+        has_permission = await check_func(project_uuid, user_id, db, share_token)
+    else:
+        has_permission = await check_func(project_uuid, user_id, db)
     
     if not has_permission:
         raise HTTPException(

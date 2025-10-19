@@ -6,7 +6,7 @@ import secrets
 
 from .. import schemas, models
 from ..database import get_db
-from ..permissions import require_permission, get_user_role, log_activity
+from ..permissions import require_permission, get_user_role, log_activity, can_access_via_link
 from .auth import get_current_user
 
 router = APIRouter(
@@ -351,3 +351,124 @@ async def accept_invite(
         "project_uuid": invite.project.uuid,
         "redirect_url": f"/canvas/{invite.project.uuid}"
     }
+
+
+@router.post("/{project_uuid}/generate-link")
+async def generate_public_link(
+    project_uuid: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Generate a public shareable link for this project (owner/editor only)"""
+    
+    # Check permission (must be owner or editor)
+    project = await require_permission(project_uuid, current_user.id, db, "share")
+    
+    # Generate or use existing token
+    if not project.public_share_token:
+        project.public_share_token = secrets.token_urlsafe(32)
+        db.commit()
+        db.refresh(project)
+        
+        # Log activity
+        await log_activity(
+            project_id=project.id,
+            user_id=current_user.id,
+            action="shared",
+            db=db,
+            details={"type": "public_link_generated"}
+        )
+    
+    return {
+        "message": "Public link generated",
+        "public_share_token": project.public_share_token,
+        "share_url": f"/canvas/{project_uuid}?share_token={project.public_share_token}"
+    }
+
+
+@router.post("/{project_uuid}/disable-link")
+async def disable_public_link(
+    project_uuid: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Disable public link sharing (owner only)"""
+    
+    # Check permission (must be owner/editor)
+    project = await require_permission(project_uuid, current_user.id, db, "share")
+    
+    if not project.public_share_token:
+        return {"message": "No public link was active"}
+    
+    project.public_share_token = None
+    db.commit()
+    
+    # Log activity
+    await log_activity(
+        project_id=project.id,
+        user_id=current_user.id,
+        action="shared",
+        db=db,
+        details={"type": "public_link_disabled"}
+    )
+    
+    return {"message": "Public link disabled"}
+
+
+@router.post("/{project_uuid}/auto-join-via-link")
+async def auto_join_via_link(
+    project_uuid: str,
+    share_token: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    """Auto-add authenticated user to project after accessing via link (like Google Docs)"""
+    
+    # Validate link access
+    has_link_access = await can_access_via_link(project_uuid, share_token, db)
+    if not has_link_access:
+        raise HTTPException(status_code=403, detail="Invalid share token")
+    
+    # Get project
+    project = db.query(models.Project).filter(
+        models.Project.uuid == project_uuid
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    
+    # Check if user already has access (owner or in ProjectShare)
+    user_role = await get_user_role(project_uuid, current_user.id, db)
+    if user_role is not None:
+        # User already has access, just return the project
+        return {
+            "message": "Already have access to this project",
+            "project_uuid": project_uuid,
+            "role": user_role.value if user_role else None
+        }
+    
+    # Auto-add as viewer
+    new_share = models.ProjectShare(
+        project_id=project.id,
+        user_id=current_user.id,
+        role=models.ProjectRole.VIEWER,
+        invited_by=project.owner_id,  # Owner is the one who "invited" via link
+        accepted_at=datetime.now()
+    )
+    db.add(new_share)
+    db.commit()
+    
+    # Log activity
+    await log_activity(
+        project_id=project.id,
+        user_id=current_user.id,
+        action="joined",
+        db=db,
+        details={"via_public_link": True}
+    )
+    
+    return {
+        "message": "Successfully added to project as viewer",
+        "project_uuid": project_uuid,
+        "role": "viewer"
+    }
+

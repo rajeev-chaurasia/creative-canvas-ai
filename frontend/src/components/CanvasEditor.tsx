@@ -150,6 +150,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   const [showShareModal, setShowShareModal] = useState(false);
   const [projectTitle, setProjectTitle] = useState('Untitled');
   const [userRole, setUserRole] = useState<string>('owner');
+  const [isGuestMode, setIsGuestMode] = useState(false);  // Track if viewing via share link as guest
 
   // Active users tracking
   const [activeUsers, setActiveUsers] = useState<Array<{
@@ -301,6 +302,16 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   useEffect(() => {
     const loadCanvas = async () => {
       try {
+        // Check if viewing via share link (guest mode)
+        const params = new URLSearchParams(window.location.search);
+        const shareToken = params.get('share_token');
+        const hasToken = !!localStorage.getItem('token');
+        
+        // If share_token exists and user is not authenticated, we're in guest mode
+        if (shareToken && !hasToken) {
+          setIsGuestMode(true);
+        }
+
         const response = await apiClient.get(`/api/projects/${projectUuid}`);
         setProjectTitle(response.data.title || 'Untitled');
         setUserRole(response.data.user_role || 'owner');
@@ -1050,6 +1061,44 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     } catch (error) {
       console.error('❌ PNG export failed:', error);
       alert('Failed to export PNG. Please try again.');
+    }
+  };
+
+  // Guest Download (for unauthenticated users viewing via share link)
+  const downloadCanvasAsGuest = async () => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const shareToken = params.get('share_token');
+      
+      if (!shareToken) {
+        alert('No share token found. Please access via a shared link.');
+        return;
+      }
+
+      // Call public export endpoint
+      const response = await fetch(
+        `${import.meta.env.VITE_API_BASE || 'http://localhost:8000'}/api/public/projects/${projectUuid}/export?share_token=${encodeURIComponent(shareToken)}&format=json`
+      );
+
+      if (!response.ok) {
+        throw new Error(`Export failed: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      
+      // Download as JSON
+      const jsonStr = JSON.stringify(data, null, 2);
+      const blob = new Blob([jsonStr], { type: 'application/json' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${projectTitle || 'canvas'}_export.json`;
+      link.click();
+      URL.revokeObjectURL(link.href);
+      
+      console.debug('Canvas exported as JSON for guest');
+    } catch (error) {
+      console.error('❌ Guest export failed:', error);
+      alert('Failed to export. Please try again.');
     }
   };
 
@@ -2973,6 +3022,28 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
           >
             📥 Export as PNG
           </button>
+
+          {/* Guest Download Button - Only shown to unauthenticated users viewing via share link */}
+          {isGuestMode && (
+            <button 
+              onClick={downloadCanvasAsGuest}
+              style={{ 
+                width: '100%',
+                padding: '12px',
+                backgroundColor: '#ff9800',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                fontSize: '13px',
+                fontWeight: 500,
+                marginBottom: '8px'
+              }}
+              title="Download this project as JSON (guest access)"
+            >
+              💾 Download as Guest
+            </button>
+          )}
 
           {/* AI Features Overview */}
           <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#1e1e1e', borderRadius: '8px', border: '1px solid #3e3e42' }}>

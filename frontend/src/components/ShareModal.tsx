@@ -32,6 +32,8 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
   const [loading, setLoading] = useState(false);
   const [shareLink, setShareLink] = useState('');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [publicLink, setPublicLink] = useState<string | null>(null);
+  const [isGeneratingLink, setIsGeneratingLink] = useState(false);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
@@ -160,6 +162,42 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
     setStatusMessage('Link copied to clipboard!');
   };
 
+  const handleGeneratePublicLink = async () => {
+    setIsGeneratingLink(true);
+    try {
+      const response = await apiClient.post(`/api/projects/${projectUuid}/generate-link`);
+      const token = response.data.public_share_token;
+      const publicShareUrl = `${window.location.origin}/canvas/${projectUuid}?share_token=${token}`;
+      setPublicLink(publicShareUrl);
+      setStatusMessage('Public link generated! Anyone with this link can view the project.');
+    } catch (error: any) {
+      setStatusMessage(error.response?.data?.detail || 'Failed to generate public link');
+    } finally {
+      setIsGeneratingLink(false);
+    }
+  };
+
+  const handleDisablePublicLink = async () => {
+    if (!confirm('Disable public link sharing? People with the link will no longer be able to access this project.')) {
+      return;
+    }
+
+    try {
+      await apiClient.post(`/api/projects/${projectUuid}/disable-link`);
+      setPublicLink(null);
+      setStatusMessage('Public link has been disabled');
+    } catch (error: any) {
+      setStatusMessage(error.response?.data?.detail || 'Failed to disable public link');
+    }
+  };
+
+  const handleCopyPublicLink = () => {
+    if (publicLink) {
+      navigator.clipboard.writeText(publicLink);
+      setStatusMessage('Public link copied to clipboard!');
+    }
+  };
+
   return (
     <div
       className="share-modal-overlay"
@@ -207,6 +245,50 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
               📋 Copy
             </button>
           </div>
+        </div>
+
+        {/* Public Link Sharing - Anyone with Link can View (Google Docs style) */}
+        <div className="share-section">
+          <label className="share-label">
+            🌐 Anyone with Link
+          </label>
+          <p style={{ fontSize: '0.9rem', color: '#999', margin: '0 0 12px 0' }}>
+            Generate a link that anyone can use to view this project. They'll need to log in to be added to the viewer list.
+          </p>
+          {publicLink ? (
+            <>
+              <div className="share-input-group">
+                <input
+                  type="text"
+                  value={publicLink}
+                  readOnly
+                  className="share-input"
+                />
+                <button
+                  onClick={handleCopyPublicLink}
+                  className="share-button-primary"
+                >
+                  📋 Copy
+                </button>
+              </div>
+              <button
+                onClick={handleDisablePublicLink}
+                className="share-button-secondary"
+                style={{ marginTop: '8px', width: '100%' }}
+              >
+                🔒 Disable Public Link
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={handleGeneratePublicLink}
+              disabled={isGeneratingLink}
+              className="share-button-primary"
+              style={{ width: '100%' }}
+            >
+              {isGeneratingLink ? '🔄 Generating...' : '🔓 Generate Public Link'}
+            </button>
+          )}
         </div>
 
         {/* Divider */}
