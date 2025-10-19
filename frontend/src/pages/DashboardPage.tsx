@@ -46,10 +46,7 @@ const DashboardPage = () => {
       const projectData = { 
         title: newProjectName.trim() 
       };
-      console.log('📝 Creating project with data:', projectData);
-      
-      const response = await apiClient.post('/api/projects', projectData);
-      console.log('✅ Project created:', response.data);
+  const response = await apiClient.post('/api/projects', projectData);
       
       setShowCreateModal(false);
       setNewProjectName('');

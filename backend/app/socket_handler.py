@@ -1,8 +1,12 @@
+import logging
 import socketio
 from jose import jwt, JWTError
 from app.routers.auth import SECRET_KEY, ALGORITHM
 from app.permissions import get_user_role, can_edit
 from app.database import SessionLocal
+
+# Logger
+logger = logging.getLogger(__name__)
 
 # Create a Socket.IO server
 sio = socketio.AsyncServer(
@@ -22,7 +26,7 @@ async def connect(sid, environ, auth):
         token = auth.get('token') if auth else None
         
         if not token:
-            print(f'❌ Client {sid} connection rejected: No token')
+            logger.warning('Client %s connection rejected: No token', sid)
             return False  # Reject connection
         
         # Verify JWT token
@@ -31,12 +35,12 @@ async def connect(sid, environ, auth):
             user_email = payload.get("sub")
             user_id = payload.get("user_id")
             
-            print(f'🔍 Token payload: sub={user_email}, user_id={user_id}')
+            logger.debug('Token payload: sub=%s, user_id=%s', user_email, user_id)
             
             if not user_email or not user_id:
-                print(f'❌ Client {sid} connection rejected: Invalid token payload')
-                print(f'❌ Missing: user_email={user_email}, user_id={user_id}')
-                print(f'⚠️  USER ACTION REQUIRED: {user_email} needs to LOG OUT and LOG BACK IN to get a fresh token with user_id')
+                logger.warning('Client %s connection rejected: Invalid token payload', sid)
+                logger.debug('Missing: user_email=%s, user_id=%s', user_email, user_id)
+                logger.warning('User action required: %s needs to log out and log back in to refresh token', user_email)
                 return False
             
             # Store user info
@@ -47,15 +51,15 @@ async def connect(sid, environ, auth):
                 'color': _generate_user_color(user_id)  # Assign consistent color
             }
             
-            print(f'✅ Client {sid} connected as {user_email} (ID: {user_id})')
+            logger.info('Client %s connected as %s (ID: %s)', sid, user_email, user_id)
             return True
             
         except JWTError as e:
-            print(f'❌ Client {sid} connection rejected: Invalid token - {e}')
+            logger.warning('Client %s connection rejected: Invalid token - %s', sid, e)
             return False
             
     except Exception as e:
-        print(f'❌ Client {sid} connection error: {e}')
+        logger.error('Client %s connection error: %s', sid, e)
         return False
 
 @sio.event
@@ -63,9 +67,9 @@ async def disconnect(sid):
     """Handle user disconnection"""
     user_info = connected_users.pop(sid, None)
     if user_info:
-        print(f'🔴 Client {sid} disconnected ({user_info["email"]})')
+        logger.info('Client %s disconnected (%s)', sid, user_info['email'])
     else:
-        print(f'Client {sid} disconnected')
+        logger.info('Client %s disconnected', sid)
 
 def _generate_user_color(user_id: int) -> str:
     """Generate a consistent color for each user based on their ID"""
@@ -81,11 +85,11 @@ async def join_project(sid, data):
     project_uuid = data.get('projectUuid')  # Changed from projectId to projectUuid
     user_info = connected_users.get(sid)
     
-    print(f'🔷 join_project called - sid: {sid}, projectUuid: {project_uuid}')
-    print(f'🔷 user_info: {user_info}')
+    logger.debug('join_project called - sid: %s, projectUuid: %s', sid, project_uuid)
+    logger.debug('user_info: %s', user_info)
     
     if not user_info:
-        print(f'❌ Client {sid} tried to join project but not authenticated')
+        logger.warning('Client %s tried to join project but not authenticated', sid)
         await sio.emit('error', {
             'message': 'Not authenticated'
         }, to=sid)
@@ -95,11 +99,11 @@ async def join_project(sid, data):
     db = SessionLocal()
     try:
         role = await get_user_role(project_uuid, user_info['user_id'], db)
-        
-        print(f'🔷 Role check result for {user_info["email"]}: {role}')
-        
+
+        logger.debug('Role check result for %s: %s', user_info['email'], role)
+
         if not role:
-            print(f'❌ {user_info["email"]} denied access to project {project_uuid}')
+            logger.warning('%s denied access to project %s', user_info['email'], project_uuid)
             await sio.emit('error', {
                 'message': 'You do not have permission to access this project'
             }, to=sid)
@@ -110,9 +114,9 @@ async def join_project(sid, data):
         user_info['role'] = role.value
         
         await sio.enter_room(sid, f'project-{project_uuid}')
-        
-        print(f'👥 {user_info["email"]} joined project {project_uuid} as {role.value}')
-        
+
+        logger.info('%s joined project %s as %s', user_info['email'], project_uuid, role.value)
+
         # Notify other users in the room
         await sio.emit('user_joined', {
             'userId': user_info['user_id'],
@@ -147,7 +151,7 @@ async def leave_project(sid, data):
     user_info = connected_users.get(sid)
     
     if user_info:
-        print(f'👋 {user_info["email"]} left project {project_uuid}')
+        logger.info('%s left project %s', user_info['email'], project_uuid)
         
         # Notify other users
         await sio.emit('user_left', {
@@ -168,27 +172,27 @@ async def canvas_update(sid, data):
     canvas_data = data.get('data')
     user_info = connected_users.get(sid)
     
-    print(f'📤 canvas_update received - sid: {sid}, projectUuid: {project_uuid}')
-    print(f'📤 canvas_data: {canvas_data}')
+    logger.debug('canvas_update received - sid: %s, projectUuid: %s', sid, project_uuid)
+    logger.debug('canvas_data: %s', canvas_data)
     
     if not user_info:
-        print(f'❌ No user_info for sid: {sid}')
+        logger.warning('No user_info for sid: %s', sid)
         return
     
     # CHECK PERMISSION - Can user edit?
     user_role = user_info.get('role')
     if user_role not in ['owner', 'editor']:
-        print(f'❌ {user_info["email"]} denied canvas_update (role: {user_role})')
+        logger.warning('%s denied canvas_update (role: %s)', user_info['email'], user_role)
         await sio.emit('error', {
             'message': 'You do not have permission to edit this project'
         }, to=sid)
         return
     
-    print(f'✅ Broadcasting canvas_update from {user_info["email"]} to room: project-{project_uuid}')
+    logger.debug('Broadcasting canvas_update from %s to room: project-%s', user_info['email'], project_uuid)
     
     # Broadcast to all clients in the project room except the sender
     await sio.emit('canvas_update', canvas_data, room=f'project-{project_uuid}', skip_sid=sid)
-    print(f'✅ Broadcasted canvas_update successfully')
+    logger.debug('Broadcasted canvas_update successfully')
 
 @sio.event
 async def cursor_move(sid, data):
@@ -215,4 +219,4 @@ async def cursor_move(sid, data):
         cursor_move.counter = 0
     cursor_move.counter += 1
     if cursor_move.counter % 100 == 0:
-        print(f'👆 cursor_move broadcasted (count: {cursor_move.counter}) from {user_info["name"]} to room: project-{project_uuid}')
+        logger.debug('cursor_move broadcasted (count: %s) from %s to room: project-%s', cursor_move.counter, user_info['name'], project_uuid)

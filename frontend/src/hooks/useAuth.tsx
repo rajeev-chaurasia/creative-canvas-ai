@@ -81,15 +81,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         // If token expires in less than 5 minutes, refresh it
         if (timeUntilExpiry < 5 * 60 * 1000) {
-          console.log('Token expiring soon, refreshing...');
-          
           const response = await axios.post(`${API_BASE}/auth/refresh`, null, {
             params: { refresh_token: refresh }
           });
 
           const { access_token } = response.data;
           localStorage.setItem('token', access_token);
-          console.log('Token refreshed successfully');
         }
       } catch (error) {
         console.error('Failed to refresh token:', error);

@@ -325,13 +325,11 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   const handleManualSave = async () => {
     setIsSaving(true);
     try {
-      console.log('💾 Manual save - preserving title, only updating canvas_state');
       await apiClient.put(`/api/projects/${projectUuid}`, {
         canvas_state: { objects }
         // Don't send title - it shouldn't change when saving canvas
       });
       setLastSaved(new Date());
-      console.log('✅ Canvas manually saved');
     } catch (error) {
       console.error('❌ Failed to save canvas:', error);
       alert('Failed to save. Please try again.');
@@ -344,13 +342,11 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   useEffect(() => {
     const saveCanvas = async () => {
       try {
-        console.log('💾 Auto-save - preserving title, only updating canvas_state');
         await apiClient.put(`/api/projects/${projectUuid}`, {
           canvas_state: { objects }
           // Don't send title - it shouldn't change when saving canvas
         });
         setLastSaved(new Date());
-        console.log('✅ Canvas auto-saved');
       } catch (error) {
         console.error('❌ Failed to save canvas:', error);
       }
@@ -373,12 +369,12 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     if (!socket) return;
 
     const handleConnect = () => {
-      console.log('✅ WebSocket CONNECTED');
+      console.debug('WebSocket connected');
       setIsConnected(true);
     };
 
     const handleDisconnect = () => {
-      console.log('❌ WebSocket DISCONNECTED');
+      console.debug('WebSocket disconnected');
       setIsConnected(false);
     };
 
@@ -399,29 +395,24 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     if (!socket) return;
 
     const handleCanvasUpdate = (data: { action: string; object?: CanvasObject; objectId?: string }) => {
-      console.log('� RECEIVED canvas_update:', data);
+  console.debug('Received canvas_update', data);
       
       if (data.action === 'add' && data.object) {
-        console.log('📥 Adding object:', data.object.id);
+  console.debug('Adding object:', data.object.id);
         setObjects(prev => {
           if (prev.find(obj => obj.id === data.object!.id)) {
-            console.log('⚠️ Object already exists, skipping');
+            console.debug('Object already exists, skipping');
             return prev;
           }
-          console.log('✅ Object added to canvas');
+          console.debug('Object added to canvas');
           return [...prev, data.object!];
         });
       } else if (data.action === 'delete' && data.objectId) {
-        console.log('📥 Deleting object:', data.objectId);
         setObjects(prev => prev.filter(obj => obj.id !== data.objectId));
       }
     };
 
     const handleCursorMove = (data: { userId: string; x: number; y: number; color: string; name: string; email: string }) => {
-      // Log only occasionally to avoid spam
-      if (Math.random() < 0.01) {
-        console.log('👆 RECEIVED cursor_move:', data.userId, data.name);
-      }
       setCursors(prev => ({
         ...prev,
         [data.userId]: { x: data.x, y: data.y, color: data.color, name: data.name }
@@ -429,7 +420,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     };
 
     const handleUserJoined = (data: { userId: number; name: string; email: string; color: string; role?: string }) => {
-      console.log('👥 User joined:', data.email);
+  console.debug('User joined:', data.email);
       setActiveUsers(prev => [...prev, {
         userId: String(data.userId),
         name: data.name,
@@ -440,7 +431,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     };
 
     const handleUserLeft = (data: { userId: number; name: string }) => {
-      console.log('👋 User left:', data.name);
+  console.debug('User left:', data.name);
       setCursors(prev => {
         const updated = { ...prev };
         delete updated[String(data.userId)];
@@ -450,7 +441,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     };
 
     const handleCurrentUsers = (data: { users: Array<{ userId: number; name: string; email: string; color: string; role?: string }> }) => {
-      console.log('👥 Current users in project:', data.users);
+  console.debug('Current users in project:', data.users);
       setActiveUsers(data.users.map(u => ({
         userId: String(u.userId),
         name: u.name,
@@ -477,13 +468,13 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
 
   const broadcastUpdate = (action: string, object?: CanvasObject, objectId?: string) => {
     if (socket) {
-      console.log('📤 SENDING canvas_update:', action, object?.id || objectId);
+  console.debug('Sending canvas_update:', action, object?.id || objectId);
       socket.emit('canvas_update', {
         projectUuid,
         data: { action, object, objectId }
       });
     } else {
-      console.log('⚠️ No socket connection, cannot broadcast');
+      console.warn('No socket connection, cannot broadcast');
     }
   };
 
@@ -1020,7 +1011,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         link.remove();
         window.URL.revokeObjectURL(url);
 
-        console.log('✅ Canvas exported as PDF via server');
+  console.debug('Canvas exported as PDF via server');
       } catch (error) {
         console.error('❌ Export failed:', error);
         alert('Failed to export PDF. Please try again.');
@@ -1051,11 +1042,11 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
       bg.destroy();
       layer.batchDraw();
       
-      const link = document.createElement('a');
-      link.href = dataURL;
-      link.download = `${projectTitle || 'canvas'}.png`;
-      link.click();
-      console.log('✅ Canvas exported as PNG');
+  const link = document.createElement('a');
+  link.href = dataURL;
+  link.download = `${projectTitle || 'canvas'}.png`;
+  link.click();
+  console.debug('Canvas exported as PNG');
     } catch (error) {
       console.error('❌ PNG export failed:', error);
       alert('Failed to export PNG. Please try again.');
