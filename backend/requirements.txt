@@ -34,7 +34,7 @@ h11==0.16.0
 httpcore==1.0.9
 httplib2==0.31.0
 httptools==0.7.1
-httpx==0.27.2
+httpx>=0.28.1,<1.0.0
 idna==3.11
 img2pdf==0.6.1
 lxml==6.0.2
@@ -52,6 +52,10 @@ pyasn1_modules==0.4.2
 pycparser==2.23
 pydantic==2.12.2
 pydantic_core==2.41.4
+<<<<<<< HEAD
+=======
+# PyMySQL==1.1.2  # Removed - using PostgreSQL with psycopg2-binary
+>>>>>>> a39ba6a (minor UI fixes)
 pyparsing==3.2.5
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.1
