@@ -88,10 +88,18 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   const [history, setHistory] = useState<CanvasObject[][]>([]);
   const [historyStep, setHistoryStep] = useState(-1);
   
+  // Responsive design state
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [isSmallScreen, setIsSmallScreen] = useState(window.innerWidth < 900);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(window.innerWidth >= 900);
+  const [rightPanelOpen, setRightPanelOpen] = useState(window.innerWidth >= 900);
+  const [aiMenuOpen, setAiMenuOpen] = useState(false);
+  const [showMobileBar, setShowMobileBar] = useState(window.innerWidth < 768);
+  
   // Canvas dimensions - responsive
   const [canvasSize, setCanvasSize] = useState({
-    width: window.innerWidth - 72 - 280,
-    height: window.innerHeight - 48
+    width: window.innerWidth - (leftPanelOpen ? 72 : 0) - (rightPanelOpen ? 280 : 0),
+    height: window.innerHeight - 48 - (showMobileBar ? 60 : 0)
   });
 
   // Stage position for panning
@@ -265,15 +273,28 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   // Handle window resize
   useEffect(() => {
     const handleResize = () => {
+      const newIsMobile = window.innerWidth < 768;
+      const newIsSmallScreen = window.innerWidth < 900;
+      
+      setIsMobile(newIsMobile);
+      setIsSmallScreen(newIsSmallScreen);
+      setShowMobileBar(newIsMobile);
+      
+      // Auto-close panels on small screens for maximum canvas space
+      if (newIsSmallScreen) {
+        setLeftPanelOpen(false);
+        setRightPanelOpen(false);
+      }
+      
       setCanvasSize({
-        width: window.innerWidth - 72 - 280,
-        height: window.innerHeight - 48
+        width: window.innerWidth - (leftPanelOpen ? 72 : 0) - (rightPanelOpen ? 280 : 0),
+        height: window.innerHeight - 48 - (newIsMobile ? 60 : 0)
       });
     };
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  }, [leftPanelOpen, rightPanelOpen]);
 
   // Load canvas state on mount
   useEffect(() => {
@@ -727,6 +748,67 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
       setCurrentLine([]);
     }
     setIsDrawing(false);
+  };
+
+  // Touch event handlers (same logic as mouse events)
+  const handleTouchStart = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    e.evt.preventDefault();
+    e.evt.stopPropagation();
+    
+    // Get touch coordinates
+    const touch = e.evt.touches[0];
+    if (!touch) return;
+    
+    // Create a synthetic mouse event
+    const syntheticEvent = {
+      ...e,
+      target: e.target,
+      currentTarget: e.currentTarget,
+      preventDefault: () => e.evt.preventDefault(),
+      stopPropagation: () => e.evt.stopPropagation(),
+      evt: {
+        ...e.evt,
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        pageX: touch.pageX,
+        pageY: touch.pageY
+      }
+    } as any;
+    
+    handleMouseDown(syntheticEvent);
+  };
+
+  const handleTouchMove = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    e.evt.preventDefault();
+    e.evt.stopPropagation();
+    
+    // Get touch coordinates
+    const touch = e.evt.touches[0];
+    if (!touch) return;
+    
+    // Create a synthetic mouse event
+    const syntheticEvent = {
+      ...e,
+      target: e.target,
+      currentTarget: e.currentTarget,
+      preventDefault: () => e.evt.preventDefault(),
+      stopPropagation: () => e.evt.stopPropagation(),
+      evt: {
+        ...e.evt,
+        clientX: touch.clientX,
+        clientY: touch.clientY,
+        pageX: touch.pageX,
+        pageY: touch.pageY
+      }
+    } as any;
+    
+    handleMouseMove(syntheticEvent);
+  };
+
+  const handleTouchEnd = (e: Konva.KonvaEventObject<TouchEvent>) => {
+    e.evt.preventDefault();
+    e.evt.stopPropagation();
+    handleMouseUp();
   };
 
   const handleObjectClick = (e: Konva.KonvaEventObject<MouseEvent>, id: string) => {
@@ -1565,6 +1647,14 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     }
   };
 
+  // Recompute canvas size when side panels toggle
+  useEffect(() => {
+    setCanvasSize({
+      width: window.innerWidth - (leftPanelOpen ? 72 : 0) - (rightPanelOpen ? 280 : 0),
+      height: window.innerHeight - 48 - (showMobileBar ? 60 : 0)
+    });
+  }, [leftPanelOpen, rightPanelOpen, showMobileBar]);
+
   return (
     <>
       <style>
@@ -1582,7 +1672,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
       <div className="canvas-editor-root" style={{ height: '100vh', overflow: 'hidden' }}>
       {/* Top Header Bar */}
       <div className="canvas-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px', flex: 1 }}>
           <button
             onClick={() => navigate('/dashboard')}
             style={{
@@ -1607,6 +1697,46 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             Canvas AI
           </h2>
           
+          {/* Panel Toggle Buttons - All Screen Sizes */}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              onClick={() => setLeftPanelOpen(!leftPanelOpen)}
+              style={{
+                background: leftPanelOpen ? '#007acc' : '#3e3e42',
+                border: '1px solid #3e3e42',
+                color: 'white',
+                cursor: 'pointer',
+                padding: '6px 12px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+              title="Toggle Tools Panel"
+            >
+              🛠️ {isSmallScreen ? '' : 'Tools'}
+            </button>
+            <button
+              onClick={() => setRightPanelOpen(!rightPanelOpen)}
+              style={{
+                background: rightPanelOpen ? '#007acc' : '#3e3e42',
+                border: '1px solid #3e3e42',
+                color: 'white',
+                cursor: 'pointer',
+                padding: '6px 12px',
+                borderRadius: '4px',
+                fontSize: '12px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+              title="Toggle Properties Panel"
+            >
+              ⚙️ {isSmallScreen ? '' : 'Properties'}
+            </button>
+          </div>
+          
           <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
             <div style={{ 
               width: '6px', 
@@ -1620,7 +1750,13 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div style={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: '12px', 
+          flexWrap: 'wrap',
+          justifyContent: 'flex-end'
+        }}>
           {/* Active Users */}
           {activeUsers.length > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1657,7 +1793,8 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: '4px' }}>
+          {/* Undo/Redo Buttons */}
+          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
             <button
               onClick={handleUndo}
               disabled={historyStep <= 0}
@@ -1670,10 +1807,13 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                 padding: '6px 12px',
                 borderRadius: '4px',
                 fontSize: '12px',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
               }}
             >
-              ↶
+              ↶ Undo
             </button>
             <button
               onClick={handleRedo}
@@ -1687,116 +1827,255 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                 padding: '6px 12px',
                 borderRadius: '4px',
                 fontSize: '12px',
-                transition: 'all 0.2s'
+                transition: 'all 0.2s',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
               }}
             >
-              ↷
+              ↷ Redo
             </button>
           </div>
 
           {/* AI Features in Top Navbar */}
-          <div style={{ display: 'flex', gap: '4px', marginLeft: '16px' }}>
-            <button
-              onClick={handleAnalyzeCanvas}
-              disabled={isAnalyzingCanvas}
-              title="Analyze Canvas"
-              style={{
-                background: isAnalyzingCanvas ? '#555' : '#007acc',
-                border: '1px solid #3e3e42',
-                color: 'white',
-                cursor: isAnalyzingCanvas ? 'not-allowed' : 'pointer',
-                padding: '6px 12px',
-                borderRadius: '4px',
-                fontSize: '12px',
-                transition: 'all 0.2s',
-                opacity: isAnalyzingCanvas ? 0.6 : 1,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}
-            >
-              {isAnalyzingCanvas ? '⏳' : '🤖'} Analyze
-            </button>
-            <button
-              onClick={handleSmartGroups}
-              disabled={isCreatingSmartGroups}
-              title="Auto-Group Elements"
-              style={{
-                background: isCreatingSmartGroups ? '#555' : '#28a745',
-                border: '1px solid #3e3e42',
-                color: 'white',
-                cursor: isCreatingSmartGroups ? 'not-allowed' : 'pointer',
-                padding: '6px 12px',
-                borderRadius: '4px',
-                fontSize: '12px',
-                transition: 'all 0.2s',
-                opacity: isCreatingSmartGroups ? 0.6 : 1,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}
-            >
-              {isCreatingSmartGroups ? '⏳' : '📦'} Group
-            </button>
-            <button
-              onClick={() => {
-                if (selectedIds.length === 1) {
-                  handleGeneratePalette();
-                } else {
-                  handleGeneratePaletteFromCanvas();
-                }
-              }}
-              disabled={isGeneratingPalette}
-              title="Generate Color Palette"
-              style={{
-                background: isGeneratingPalette ? '#555' : '#ff6b35',
-                border: '1px solid #3e3e42',
-                color: 'white',
-                cursor: isGeneratingPalette ? 'not-allowed' : 'pointer',
-                padding: '6px 12px',
-                borderRadius: '4px',
-                fontSize: '12px',
-                transition: 'all 0.2s',
-                opacity: isGeneratingPalette ? 0.6 : 1,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}
-            >
-              {isGeneratingPalette ? '⏳' : '🎨'} Palette
-            </button>
-            <button
-              onClick={() => {
-                const keywords = prompt('Enter keywords to search for images (e.g., "modern design, abstract, blue"):');
-                if (keywords && keywords.trim()) {
-                  handleFindMoreAssetsByKeywords(keywords.trim());
-                }
-              }}
-              disabled={isFindingAssets}
-              title="Find Images by Keywords"
-              style={{
-                background: isFindingAssets ? '#555' : '#9c27b0',
-                border: '1px solid #3e3e42',
-                color: 'white',
-                cursor: isFindingAssets ? 'not-allowed' : 'pointer',
-                padding: '6px 12px',
-                borderRadius: '4px',
-                fontSize: '12px',
-                transition: 'all 0.2s',
-                opacity: isFindingAssets ? 0.6 : 1,
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px'
-              }}
-            >
-              {isFindingAssets ? '⏳' : '🔍'} Images
-            </button>
+          <div style={{ 
+            display: 'flex', 
+            gap: '4px', 
+            marginLeft: isSmallScreen ? '0' : '16px',
+            flexWrap: 'wrap',
+            position: 'relative'
+          }}>
+            {isSmallScreen ? (
+              <>
+                <button
+                  onClick={() => setAiMenuOpen(!aiMenuOpen)}
+                  title="AI Tools"
+                  style={{
+                    background: '#5b6ee1',
+                    border: '1px solid #3e3e42',
+                    color: 'white',
+                    cursor: 'pointer',
+                    padding: '6px 10px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px'
+                  }}
+                >
+                  🤖 AI
+                </button>
+                {aiMenuOpen && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      top: '34px',
+                      left: 0,
+                      background: '#1f2330',
+                      border: '1px solid #3e3e42',
+                      borderRadius: '6px',
+                      padding: '8px',
+                      display: 'grid',
+                      gridTemplateColumns: '1fr',
+                      gap: '6px',
+                      zIndex: 20,
+                      minWidth: '160px'
+                    }}
+                  >
+                    <button
+                      onClick={handleAnalyzeCanvas}
+                      disabled={isAnalyzingCanvas}
+                      title="Analyze Canvas"
+                      style={{
+                        background: isAnalyzingCanvas ? '#555' : '#007acc',
+                        border: '1px solid #3e3e42',
+                        color: 'white',
+                        cursor: isAnalyzingCanvas ? 'not-allowed' : 'pointer',
+                        padding: '6px 10px',
+                        borderRadius: '4px',
+                        fontSize: '12px'
+                      }}
+                    >
+                      {isAnalyzingCanvas ? '⏳' : '🤖 Analyze'}
+                    </button>
+                    <button
+                      onClick={handleSmartGroups}
+                      disabled={isCreatingSmartGroups}
+                      title="Auto-Group Elements"
+                      style={{
+                        background: isCreatingSmartGroups ? '#555' : '#28a745',
+                        border: '1px solid #3e3e42',
+                        color: 'white',
+                        cursor: isCreatingSmartGroups ? 'not-allowed' : 'pointer',
+                        padding: '6px 10px',
+                        borderRadius: '4px',
+                        fontSize: '12px'
+                      }}
+                    >
+                      {isCreatingSmartGroups ? '⏳' : '📦 Group'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (selectedIds.length === 1) {
+                          handleGeneratePalette();
+                        } else {
+                          handleGeneratePaletteFromCanvas();
+                        }
+                        setAiMenuOpen(false);
+                      }}
+                      disabled={isGeneratingPalette}
+                      title="Generate Color Palette"
+                      style={{
+                        background: isGeneratingPalette ? '#555' : '#ff6b35',
+                        border: '1px solid #3e3e42',
+                        color: 'white',
+                        cursor: isGeneratingPalette ? 'not-allowed' : 'pointer',
+                        padding: '6px 10px',
+                        borderRadius: '4px',
+                        fontSize: '12px'
+                      }}
+                    >
+                      {isGeneratingPalette ? '⏳' : '🎨 Palette'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        const keywords = prompt('Enter keywords to search for images (e.g., "modern design, abstract, blue"):');
+                        if (keywords && keywords.trim()) {
+                          handleFindMoreAssetsByKeywords(keywords.trim());
+                        }
+                        setAiMenuOpen(false);
+                      }}
+                      disabled={isFindingAssets}
+                      title="Find Images by Keywords"
+                      style={{
+                        background: isFindingAssets ? '#555' : '#9c27b0',
+                        border: '1px solid #3e3e42',
+                        color: 'white',
+                        cursor: isFindingAssets ? 'not-allowed' : 'pointer',
+                        padding: '6px 10px',
+                        borderRadius: '4px',
+                        fontSize: '12px'
+                      }}
+                    >
+                      {isFindingAssets ? '⏳' : '🔍 Images'}
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              // Full AI toolbar on large screens
+              <>
+                <button
+                  onClick={handleAnalyzeCanvas}
+                  disabled={isAnalyzingCanvas}
+                  title="Analyze Canvas"
+                  style={{
+                    background: isAnalyzingCanvas ? '#555' : '#007acc',
+                    border: '1px solid #3e3e42',
+                    color: 'white',
+                    cursor: isAnalyzingCanvas ? 'not-allowed' : 'pointer',
+                    padding: '6px 12px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    transition: 'all 0.2s',
+                    opacity: isAnalyzingCanvas ? 0.6 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  {isAnalyzingCanvas ? '⏳' : '🤖'} Analyze
+                </button>
+                <button
+                  onClick={handleSmartGroups}
+                  disabled={isCreatingSmartGroups}
+                  title="Auto-Group Elements"
+                  style={{
+                    background: isCreatingSmartGroups ? '#555' : '#28a745',
+                    border: '1px solid #3e3e42',
+                    color: 'white',
+                    cursor: isCreatingSmartGroups ? 'not-allowed' : 'pointer',
+                    padding: '6px 12px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    transition: 'all 0.2s',
+                    opacity: isCreatingSmartGroups ? 0.6 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  {isCreatingSmartGroups ? '⏳' : '📦'} Group
+                </button>
+                <button
+                  onClick={() => {
+                    if (selectedIds.length === 1) {
+                      handleGeneratePalette();
+                    } else {
+                      handleGeneratePaletteFromCanvas();
+                    }
+                  }}
+                  disabled={isGeneratingPalette}
+                  title="Generate Color Palette"
+                  style={{
+                    background: isGeneratingPalette ? '#555' : '#ff6b35',
+                    border: '1px solid #3e3e42',
+                    color: 'white',
+                    cursor: isGeneratingPalette ? 'not-allowed' : 'pointer',
+                    padding: '6px 12px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    transition: 'all 0.2s',
+                    opacity: isGeneratingPalette ? 0.6 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  {isGeneratingPalette ? '⏳' : '🎨'} Palette
+                </button>
+                <button
+                  onClick={() => {
+                    const keywords = prompt('Enter keywords to search for images (e.g., "modern design, abstract, blue"):');
+                    if (keywords && keywords.trim()) {
+                      handleFindMoreAssetsByKeywords(keywords.trim());
+                    }
+                  }}
+                  disabled={isFindingAssets}
+                  title="Find Images by Keywords"
+                  style={{
+                    background: isFindingAssets ? '#555' : '#9c27b0',
+                    border: '1px solid #3e3e42',
+                    color: 'white',
+                    cursor: isFindingAssets ? 'not-allowed' : 'pointer',
+                    padding: '6px 12px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    transition: 'all 0.2s',
+                    opacity: isFindingAssets ? 0.6 : 1,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px'
+                  }}
+                >
+                  {isFindingAssets ? '⏳' : '🔍'} Images
+                </button>
+              </>
+            )}
           </div>
 
           {/* Generated Color Palette Display */}
           {generatedPalette.length > 0 && (
-            <div style={{ display: 'flex', gap: '4px', marginLeft: '16px', alignItems: 'center' }}>
-              <span style={{ color: '#e1e1e1', fontSize: '12px', fontWeight: 500 }}>Generated Colors:</span>
+            <div style={{ 
+              display: 'flex', 
+              gap: '4px', 
+              marginLeft: isSmallScreen ? '8px' : '16px', 
+              alignItems: 'center',
+              flexWrap: 'wrap'
+            }}>
+              {!isSmallScreen && (
+                <span style={{ color: '#e1e1e1', fontSize: '12px', fontWeight: 500 }}>Generated Colors:</span>
+              )}
               <div style={{ display: 'flex', gap: '2px' }}>
                 {generatedPalette.map((color, index) => (
                   <button
@@ -1806,8 +2085,8 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                       setFillColor(color);
                     }}
                     style={{
-                      width: '24px',
-                      height: '24px',
+                      width: isSmallScreen ? '20px' : '24px',
+                      height: isSmallScreen ? '20px' : '24px',
                       backgroundColor: color,
                       border: '2px solid #3e3e42',
                       borderRadius: '4px',
@@ -1828,7 +2107,12 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                     }}
                     title={`Click to set as stroke & fill color: ${color}`}
                   >
-                    <span style={{ color: 'white', fontSize: '8px', fontWeight: 'bold', textShadow: '1px 1px 2px rgba(0,0,0,0.8)' }}>
+                    <span style={{ 
+                      color: 'white', 
+                      fontSize: isSmallScreen ? '6px' : '8px', 
+                      fontWeight: 'bold', 
+                      textShadow: '1px 1px 2px rgba(0,0,0,0.8)' 
+                    }}>
                       {index + 1}
                     </span>
                   </button>
@@ -1854,10 +2138,14 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
           )}
 
           {/* Zoom Controls */}
-          <div className="zoom-controls">
+          <div className="zoom-controls" style={{ 
+            display: isMobile ? 'none' : 'flex',
+            gap: '4px',
+            alignItems: 'center'
+          }}>
             <button
               onClick={zoomOut}
-              title="Zoom Out (−)"
+              title="Zoom Out (-)"
               className="zoom-button"
             >
               −
@@ -1880,6 +2168,50 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
               1:1
             </button>
           </div>
+
+          {/* Mobile Zoom Indicator */}
+          {isMobile && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '4px 8px',
+              background: 'rgba(0, 0, 0, 0.3)',
+              borderRadius: '4px',
+              fontSize: '11px',
+              color: '#e1e1e1'
+            }}>
+              <span>{Math.round(stageScale * 100)}%</span>
+              <button
+                onClick={zoomOut}
+                title="Zoom Out"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#e1e1e1',
+                  cursor: 'pointer',
+                  padding: '2px 4px',
+                  fontSize: '12px'
+                }}
+              >
+                −
+              </button>
+              <button
+                onClick={zoomIn}
+                title="Zoom In"
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#e1e1e1',
+                  cursor: 'pointer',
+                  padding: '2px 4px',
+                  fontSize: '12px'
+                }}
+              >
+                +
+              </button>
+            </div>
+          )}
 
           {userRole !== 'viewer' && (
             <button
@@ -1936,7 +2268,13 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden', height: 'calc(100vh - 48px)' }}>
         {/* Left Toolbar */}
-        <div className="canvas-toolbar-left" style={{ overflowY: 'auto', height: '100%' }}>
+        <div 
+          className={`canvas-toolbar-left ${leftPanelOpen ? 'open' : 'collapsed'}`}
+          style={{ 
+            overflowY: 'auto', 
+            height: '100%'
+          }}
+        >
 
           {/* Main Tools */}
           <ToolButton 
@@ -2040,7 +2378,13 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         </div>
 
         {/* Canvas Area */}
-        <div style={{ flex: 1, backgroundColor: '#1e1e1e', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ 
+          flex: 1, 
+          backgroundColor: '#1e1e1e', 
+          position: 'relative', 
+          overflow: 'hidden',
+          minWidth: 0 // Allow flex shrinking
+        }}>
           <Stage
             ref={stageRef}
             width={canvasSize.width}
@@ -2054,9 +2398,12 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
+            onTouchStart={handleTouchStart}
+            onTouchMove={handleTouchMove}
+            onTouchEnd={handleTouchEnd}
             onDrop={handleDrop}
             onDragOver={handleDragOver}
-            style={{ backgroundColor: '#ffffff' }}
+            style={{ backgroundColor: '#ffffff', touchAction: 'none' }}
           >
             <Layer ref={layerRef}>
               {objects.map((obj) => {
@@ -2349,7 +2696,13 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         </div>
 
         {/* Right Panel - Properties */}
-        <div className="canvas-panel-right" style={{ overflowY: 'auto', height: '100%' }}>
+        <div 
+          className={`canvas-panel-right ${rightPanelOpen ? 'open' : 'collapsed'}`}
+          style={{ 
+            overflowY: 'auto', 
+            height: '100%'
+          }}
+        >
           <h3 className="section-title">
             Design
           </h3>
@@ -3245,6 +3598,45 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         </div>
       )}
 
+      {/* Mobile Overlay */}
+      {isSmallScreen && (leftPanelOpen || rightPanelOpen) && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            zIndex: 999,
+            cursor: 'pointer'
+          }}
+          onClick={() => {
+            setLeftPanelOpen(false);
+            setRightPanelOpen(false);
+          }}
+        />
+      )}
+
+      {/* Mobile Bottom Action Bar */}
+      {showMobileBar && (
+        <div className="mobile-bottom-bar">
+          <div className="mbb-group">
+            <button className={`mobile-action-btn ${tool === 'select' ? 'active' : ''}`} onClick={() => setTool('select')} title="Select">↖</button>
+            <button className={`mobile-action-btn ${tool === 'pen' ? 'active' : ''}`} onClick={() => setTool('pen')} title="Pen">✏️</button>
+            <button className={`mobile-action-btn ${tool === 'eraser' ? 'active' : ''}`} onClick={() => setTool('eraser')} title="Eraser">🧽</button>
+            <button className={`mobile-action-btn ${tool === 'rect' ? 'active' : ''}`} onClick={() => setTool('rect')} title="Rectangle">▭</button>
+            <button className={`mobile-action-btn ${tool === 'circle' ? 'active' : ''}`} onClick={() => setTool('circle')} title="Circle">◯</button>
+            <button className={`mobile-action-btn ${tool === 'text' ? 'active' : ''}`} onClick={() => setTool('text')} title="Text">T</button>
+          </div>
+          <div className="mbb-group">
+            <button className="mobile-action-btn" onClick={() => setLeftPanelOpen(!leftPanelOpen)} title="Tools">🛠️</button>
+            <button className="mobile-action-btn" onClick={() => setRightPanelOpen(!rightPanelOpen)} title="Properties">⚙️</button>
+            <button className="mobile-action-btn" onClick={() => setAiMenuOpen(!aiMenuOpen)} title="AI">🤖</button>
+          </div>
+        </div>
+      )}
+
       {/* Share Modal */}
       {showShareModal && (
         <ShareModal
@@ -3273,6 +3665,51 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
           👁️ View-only mode • Ask the owner for edit permission
         </div>
       )}
+
+      {/* Edge toggle buttons for side panels */}
+      <div style={{ position: 'absolute', top: '50%', left: 0, right: 0, pointerEvents: 'none' }}>
+        <button
+          onClick={() => setLeftPanelOpen(!leftPanelOpen)}
+          title={leftPanelOpen ? 'Hide tools' : 'Show tools'}
+          style={{
+            position: 'absolute',
+            left: leftPanelOpen ? 68 : 0,
+            transform: 'translateY(-50%)',
+            zIndex: 15,
+            width: 20,
+            height: 40,
+            borderRadius: '0 6px 6px 0',
+            border: '1px solid #3e3e42',
+            background: '#2b2f3a',
+            color: '#e1e1e1',
+            cursor: 'pointer',
+            pointerEvents: 'auto'
+          }}
+        >
+          {leftPanelOpen ? '‹' : '›'}
+        </button>
+        
+        <button
+          onClick={() => setRightPanelOpen(!rightPanelOpen)}
+          title={rightPanelOpen ? 'Hide properties' : 'Show properties'}
+          style={{
+            position: 'absolute',
+            right: rightPanelOpen ? 276 : 0,
+            transform: 'translateY(-50%)',
+            zIndex: 15,
+            width: 20,
+            height: 40,
+            borderRadius: '6px 0 0 6px',
+            border: '1px solid #3e3e42',
+            background: '#2b2f3a',
+            color: '#e1e1e1',
+            cursor: 'pointer',
+            pointerEvents: 'auto'
+          }}
+        >
+          {rightPanelOpen ? '›' : '‹'}
+        </button>
+      </div>
     </div>
     </>
   );

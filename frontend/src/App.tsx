@@ -62,30 +62,11 @@ function Navigation() {
                 <span className="profile-icon-glyph" aria-hidden>👤</span>
               </button>
             </div>
-            <div className="profile-dropdown" style={{
-              position: 'absolute',
-              right: 0,
-              top: '48px',
-              minWidth: '220px',
-              background: '#0f0f10',
-              border: '1px solid rgba(255,255,255,0.04)',
-              borderRadius: '8px',
-              padding: '10px',
-              boxShadow: '0 6px 20px rgba(2,2,4,0.7)',
-              display: menuOpen ? 'block' : 'none',
-              zIndex: 40
-            }}>
-              <div style={{ color: '#ddd', fontSize: '13px', marginBottom: '6px' }}>{email}</div>
-              <button onClick={() => { setMenuOpen(false); logout(); }} style={{
-                width: '100%',
-                background: 'transparent',
-                color: '#ff7b7b',
-                border: 'none',
-                textAlign: 'left',
-                padding: '8px 6px',
-                cursor: 'pointer',
-                borderRadius: '4px'
-              }}>Sign Out</button>
+            <div className="profile-dropdown">
+              <div className="user-email">{email}</div>
+              <button onClick={() => { setMenuOpen(false); logout(); }}>
+                🚪 Sign Out
+              </button>
             </div>
           </div>
         </div>

@@ -1,127 +1,187 @@
 #root {
   width: 100%;
-  height: 100vh;
+  min-height: 100vh;
   margin: 0;
   padding: 0;
   overflow-x: hidden;
 }
 
-/* Reset default styles */
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  padding: 0;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
-
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
-}
-
-.card {
-  padding: 2em;
-}
-
-.read-the-docs {
-  color: #888;
-}
-
-.profile-dropdown {
-  transition: opacity 120ms ease, transform 120ms ease;
-  opacity: 0;
-  transform: translateY(-6px);
-  display: none;
-}
-
-.profile-menu-root.open .profile-dropdown {
-  display: block !important;
-  transform: translateY(0);
-  opacity: 1;
-}
-
-/* Ensure SVG icons inside profile button are visible regardless of global styles */
-.profile-icon-glyph {
-  display: inline-block;
-  width: 18px;
-  height: 18px;
-  line-height: 18px;
-  text-align: center;
-  font-size: 14px;
-}
-
-/* Application Navigation Bar */
+/* Modern Navigation Bar */
 .app-nav {
+  position: sticky;
+  top: 0;
   width: 100%;
-  background: linear-gradient(90deg, #0f1535 0%, #1a1f3a 100%);
-  padding: 10px 5%;
-  border-bottom: 1px solid rgba(255,255,255,0.03);
+  background: rgba(30, 41, 59, 0.8);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-color);
+  padding: 0.875rem 5%;
   box-sizing: border-box;
-  z-index: 50;
+  z-index: 100;
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-base);
 }
 
 .app-nav-inner {
   max-width: 1600px;
   margin: 0 auto;
   display: flex;
-  gap: 16px;
+  gap: var(--space-lg);
   align-items: center;
+  justify-content: space-between;
 }
 
 .app-brand {
-  font-weight: 700;
-  color: #eaeaea;
-  font-size: 18px;
+  font-weight: 800;
+  font-size: 1.375rem;
+  background: linear-gradient(135deg, var(--primary-light) 0%, var(--secondary) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.025em;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.app-brand::before {
+  content: "✨";
+  font-size: 1.5rem;
+  -webkit-text-fill-color: initial;
+}
+
+/* Profile Menu */
+.profile-menu-root {
+  position: relative;
 }
 
 .profile-button {
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg,#7a57ff,#5cc1ff);
+  background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
   font-weight: 700;
   cursor: pointer;
-  border: none;
+  border: 2px solid transparent;
+  transition: all var(--transition-base);
+  box-shadow: var(--shadow-md);
+  padding: 0;
+}
+
+.profile-button:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--primary-light);
+}
+
+.profile-button:active {
+  transform: translateY(0);
+}
+
+.profile-icon-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  font-size: 16px;
 }
 
 .profile-dropdown {
-  transition: opacity 120ms ease, transform 120ms ease;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.5rem);
+  min-width: 240px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  box-shadow: var(--shadow-xl);
   opacity: 0;
-  transform: translateY(-6px);
-  display: none;
+  transform: translateY(-8px) scale(0.95);
+  pointer-events: none;
+  transition: all var(--transition-base);
+  z-index: 200;
 }
 
 .profile-menu-root.open .profile-dropdown {
-  display: block !important;
-  transform: translateY(0);
   opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: all;
+}
+
+.profile-dropdown .user-email {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  margin-bottom: var(--space-sm);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--border-color);
+  word-break: break-word;
+}
+
+.profile-dropdown button {
+  width: 100%;
+  background: transparent;
+  color: var(--secondary);
+  border: 1px solid var(--border-color);
+  text-align: left;
+  padding: var(--space-sm) var(--space-md);
+  cursor: pointer;
+  border-radius: var(--radius-md);
+  font-weight: 600;
+  transition: all var(--transition-fast);
+}
+
+.profile-dropdown button:hover {
+  background: rgba(236, 72, 153, 0.1);
+  border-color: var(--secondary);
+  transform: translateX(4px);
+}
+
+/* Responsive Navigation */
+@media (max-width: 768px) {
+  .app-nav {
+    padding: 0.75rem 4%;
+  }
+  
+  .app-brand {
+    font-size: 1.125rem;
+  }
+  
+  .app-brand::before {
+    font-size: 1.25rem;
+  }
+  
+  .profile-button {
+    width: 36px;
+    height: 36px;
+  }
+  
+  .profile-dropdown {
+    min-width: 200px;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-nav-inner {
+    gap: var(--space-md);
+  }
+  
+  .app-brand {
+    font-size: 1rem;
+  }
+  
+  .profile-button {
+    width: 32px;
+    height: 32px;
+  }
+  
+  .profile-icon-glyph {
+    font-size: 14px;
+  }
 }

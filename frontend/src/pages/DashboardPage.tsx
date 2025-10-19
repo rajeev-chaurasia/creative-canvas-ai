@@ -115,349 +115,177 @@ const DashboardPage = () => {
 
   return (
     <div className="dashboard-root">
-      {/* Header Section */}
-      <div className="dashboard-header">
-        <h1 className="dashboard-title">Your Projects</h1>
-        <p className="dashboard-subtitle">Create and manage your design projects</p>
-      </div>
-
-      {/* Create New Project Card */}
-      <div style={{ marginBottom: '40px' }}>
-        <button 
-          onClick={() => setShowCreateModal(true)}
-          className="create-project-card"
-        >
-          <span style={{ fontSize: '24px' }}>+</span>
-          <span style={{ fontSize: '15px', fontWeight: 500 }}>Create New Project</span>
-        </button>
-      </div>
-
-      {/* My Projects Section */}
-      {ownedProjects.length > 0 && (
-        <div style={{ marginBottom: '48px' }}>
-          <h2 style={{ color: '#e1e1e1', fontSize: '20px', fontWeight: 600, marginBottom: '20px' }}>📁 My Projects</h2>
-          <div className="projects-grid">
-            {ownedProjects.map((project) => (
-              <div key={project.uuid} className="project-card">
-                {/* Canvas Preview */}
-                <Link to={`/canvas/${project.uuid}`} style={{ textDecoration: 'none' }}>
-                  <div className="project-preview">
-                    <span style={{ fontSize: '48px', opacity: 0.18 }}>🎨</span>
-                    <div className="preview-open-label">Click to open</div>
-                  </div>
-                </Link>
-
-                {/* Project Info */}
-                <div className="project-body">
-                  {/* Title - Editable */}
-                  {editingProject === project.uuid ? (
-                    <div style={{ marginBottom: '12px' }}>
-                      <input
-                        type="text"
-                        value={editingName}
-                        onChange={(e) => setEditingName(e.target.value)}
-                        onKeyPress={(e) => {
-                          if (e.key === 'Enter') handleRenameProject(project.uuid);
-                          if (e.key === 'Escape') {
-                            setEditingProject(null);
-                            setEditingName('');
-                          }
-                        }}
-                        autoFocus
-                        style={{
-                          width: '100%',
-                          backgroundColor: '#0f1535',
-                          border: '1px solid #00d4ff',
-                          borderRadius: '6px',
-                          padding: '8px 10px',
-                          color: '#e1e1e1',
-                          fontSize: '16px',
-                          fontWeight: 700
-                        }}
-                      />
-                      <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                        <button onClick={() => handleRenameProject(project.uuid)} className="btn-primary">Save</button>
-                        <button onClick={() => { setEditingProject(null); setEditingName(''); }} className="btn-danger">Cancel</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <h2 onClick={() => { setEditingProject(project.uuid); setEditingName(project.title); }} className="project-title" title="Click to rename">
-                      {project.title}
-                    </h2>
-                  )}
-
-                  {/* Dates */}
-                  <div className="project-meta">
-                    <div>📅 Created: {formatDate(project.created_at)}</div>
-                    <div>🔄 Modified: {formatDate(project.updated_at)}</div>
-                  </div>
-
-                  {/* Actions */}
-                  <div className="actions-row">
-                    <Link to={`/canvas/${project.uuid}`} className="btn-primary">Open</Link>
-                    <button onClick={() => handleDeleteProject(project.uuid, project.title)} className="btn-danger">Delete</button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+      <div className="dashboard-container">
+        {/* Header Section */}
+        <div className="dashboard-header">
+          <h1 className="dashboard-title">Your Projects</h1>
+          <p className="dashboard-subtitle">Create and manage your design projects</p>
         </div>
-      )}
 
-      {/* Shared with me Section */}
-      {sharedProjects.length > 0 && (
-        <div style={{ marginBottom: '48px' }}>
-          <h2 style={{ 
-            color: '#e1e1e1', 
-            fontSize: '20px', 
-            fontWeight: 600,
-            marginBottom: '20px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}>
-            📤 Shared with me
-          </h2>
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', 
-            gap: '24px'
-          }}>
-            {sharedProjects.map((project) => (
-              <div
-                key={project.uuid}
-                style={{
-                  backgroundColor: '#2d2d30',
-                  borderRadius: '8px',
-                  border: '1px solid #3e3e42',
-                  overflow: 'hidden',
-                  transition: 'all 0.2s ease',
-                  position: 'relative'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = '#007acc';
-                  e.currentTarget.style.transform = 'translateY(-2px)';
-                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.3)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = '#3e3e42';
-                  e.currentTarget.style.transform = 'translateY(0)';
-                  e.currentTarget.style.boxShadow = 'none';
-                }}
-              >
-                {/* Role Badge */}
-                <div style={{
-                  position: 'absolute',
-                  top: '8px',
-                  right: '8px',
-                  backgroundColor: project.user_role === 'editor' ? '#4caf50' : '#ff9800',
-                  color: 'white',
-                  padding: '4px 10px',
-                  borderRadius: '12px',
-                  fontSize: '11px',
-                  fontWeight: 600,
-                  textTransform: 'uppercase',
-                  zIndex: 10
-                }}>
-                  {project.user_role}
-                </div>
-
-                {/* Canvas Preview */}
-                <Link to={`/canvas/${project.uuid}`} style={{ textDecoration: 'none' }}>
-                  <div style={{
-                    width: '100%',
-                    height: '180px',
-                    backgroundColor: '#1e1e1e',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    borderBottom: '1px solid #3e3e42',
-                    position: 'relative'
-                  }}>
-                    <span style={{ fontSize: '48px', opacity: 0.3 }}>🎨</span>
-                    <div style={{
-                      position: 'absolute',
-                      bottom: '8px',
-                      right: '8px',
-                      backgroundColor: 'rgba(0,0,0,0.7)',
-                      padding: '4px 8px',
-                      borderRadius: '4px',
-                      fontSize: '11px',
-                      color: '#888'
-                    }}>
-                      Click to open
-                    </div>
-                  </div>
-                </Link>
-
-                {/* Project Info */}
-                <div style={{ padding: '20px' }}>
-                  <h2 style={{ 
-                    color: '#e1e1e1', 
-                    fontSize: '16px', 
-                    fontWeight: 600,
-                    marginBottom: '12px',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap'
-                  }}>
-                    {project.title}
-                  </h2>
-
-                  {/* Dates */}
-                  <div style={{ marginBottom: '16px' }}>
-                    <p style={{ 
-                      color: '#888', 
-                      fontSize: '12px', 
-                      margin: '0 0 4px 0',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}>
-                      <span>📅</span>
-                      <span>Created: {formatDate(project.created_at)}</span>
-                    </p>
-                    <p style={{ 
-                      color: '#888', 
-                      fontSize: '12px', 
-                      margin: 0,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '6px'
-                    }}>
-                      <span>🔄</span>
-                      <span>Modified: {formatDate(project.updated_at)}</span>
-                    </p>
-                  </div>
-
-                  {/* Actions */}
-                  <Link 
-                    to={`/canvas/${project.uuid}`}
-                    style={{
-                      display: 'block',
-                      width: '100%',
-                      padding: '8px',
-                      backgroundColor: '#007acc',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                      fontWeight: 500,
-                      textAlign: 'center',
-                      textDecoration: 'none'
-                    }}
-                  >
-                    Open
-                  </Link>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Empty State */}
-      {ownedProjects.length === 0 && sharedProjects.length === 0 && (
-        <div style={{
-          textAlign: 'center',
-          padding: '80px 20px',
-          color: '#666'
-        }}>
-          <p style={{ fontSize: '48px', marginBottom: '16px' }}>📋</p>
-          <p style={{ fontSize: '16px' }}>No projects yet. Create your first project to get started!</p>
-        </div>
-      )}
-
-      {/* Create Project Modal */}
-      {showCreateModal && (
-        <div 
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000
-          }}
-          onClick={() => setShowCreateModal(false)}
-        >
-          <div 
-            style={{
-              backgroundColor: '#2d2d30',
-              borderRadius: '8px',
-              padding: '32px',
-              maxWidth: '500px',
-              width: '90%',
-              border: '1px solid #3e3e42'
-            }}
-            onClick={(e) => e.stopPropagation()}
+        {/* Create New Project Card */}
+        <div style={{ marginBottom: 'var(--space-2xl)' }}>
+          <button 
+            onClick={() => setShowCreateModal(true)}
+            className="create-project-card"
           >
-            <h2 style={{ color: '#e1e1e1', marginBottom: '24px', fontSize: '20px' }}>
-              Create New Project
-            </h2>
-            <input
-              type="text"
-              placeholder="Enter project name..."
-              value={newProjectName}
-              onChange={(e) => setNewProjectName(e.target.value)}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter') handleCreateProject();
-              }}
-              autoFocus
-              style={{
-                width: '100%',
-                padding: '12px',
-                backgroundColor: '#1e1e1e',
-                border: '1px solid #3e3e42',
-                borderRadius: '4px',
-                color: '#e1e1e1',
-                fontSize: '14px',
-                marginBottom: '24px',
-                boxSizing: 'border-box'
-              }}
-            />
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => {
-                  setShowCreateModal(false);
-                  setNewProjectName('');
-                }}
-                style={{
-                  padding: '10px 20px',
-                  backgroundColor: '#3e3e42',
-                  color: '#e1e1e1',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '14px'
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCreateProject}
-                style={{
-                  padding: '10px 20px',
-                  backgroundColor: '#007acc',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: 'pointer',
-                  fontSize: '14px',
-                  fontWeight: 500
-                }}
-              >
-                Create
-              </button>
+            <span className="create-project-icon">✨</span>
+            <span className="create-project-text">Create New Project</span>
+          </button>
+        </div>
+
+        {/* My Projects Section */}
+        {ownedProjects.length > 0 && (
+          <div style={{ marginBottom: 'var(--space-2xl)' }}>
+            <div className="section-header">
+              <h2>📁 My Projects</h2>
+            </div>
+            <div className="projects-grid">
+              {ownedProjects.map((project) => (
+                <div key={project.uuid} className="project-card">
+                  {/* Canvas Preview */}
+                  <Link to={`/canvas/${project.uuid}`} style={{ textDecoration: 'none' }}>
+                    <div className="project-preview">
+                      <span className="project-preview-icon">🎨</span>
+                      <div className="preview-open-label">Click to open</div>
+                    </div>
+                  </Link>
+
+                  {/* Project Info */}
+                  <div className="project-body">
+                    {/* Title - Editable */}
+                    {editingProject === project.uuid ? (
+                      <div style={{ marginBottom: 'var(--space-md)' }}>
+                        <input
+                          type="text"
+                          value={editingName}
+                          onChange={(e) => setEditingName(e.target.value)}
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter') handleRenameProject(project.uuid);
+                            if (e.key === 'Escape') {
+                              setEditingProject(null);
+                              setEditingName('');
+                            }
+                          }}
+                          autoFocus
+                          className="modal-input"
+                        />
+                        <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-sm)' }}>
+                          <button onClick={() => handleRenameProject(project.uuid)} className="btn-primary">Save</button>
+                          <button onClick={() => { setEditingProject(null); setEditingName(''); }} className="btn-danger">Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <h3 onClick={() => { setEditingProject(project.uuid); setEditingName(project.title); }} className="project-title" title="Click to rename">
+                        {project.title}
+                      </h3>
+                    )}
+
+                    {/* Dates */}
+                    <div className="project-meta">
+                      <div>📅 Created: {formatDate(project.created_at)}</div>
+                      <div>🔄 Modified: {formatDate(project.updated_at)}</div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="actions-row">
+                      <Link to={`/canvas/${project.uuid}`} className="btn-primary">Open</Link>
+                      <button onClick={() => handleDeleteProject(project.uuid, project.title)} className="btn-danger">Delete</button>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Shared with me Section */}
+        {sharedProjects.length > 0 && (
+          <div style={{ marginBottom: 'var(--space-2xl)' }}>
+            <div className="section-header">
+              <h2>📤 Shared with me</h2>
+            </div>
+            <div className="projects-grid">
+              {sharedProjects.map((project) => (
+                <div key={project.uuid} className="project-card">
+                  {/* Role Badge */}
+                  <div className={`role-badge ${project.user_role}`}>
+                    {project.user_role}
+                  </div>
+
+                  {/* Canvas Preview */}
+                  <Link to={`/canvas/${project.uuid}`} style={{ textDecoration: 'none' }}>
+                    <div className="project-preview">
+                      <span className="project-preview-icon">🎨</span>
+                      <div className="preview-open-label">Click to open</div>
+                    </div>
+                  </Link>
+
+                  {/* Project Info */}
+                  <div className="project-body">
+                    <h3 className="project-title">{project.title}</h3>
+
+                    {/* Dates */}
+                    <div className="project-meta">
+                      <div>📅 Created: {formatDate(project.created_at)}</div>
+                      <div>🔄 Modified: {formatDate(project.updated_at)}</div>
+                    </div>
+
+                    {/* Actions */}
+                    <Link to={`/canvas/${project.uuid}`} className="btn-primary" style={{ display: 'block', textAlign: 'center' }}>
+                      Open
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Empty State */}
+        {ownedProjects.length === 0 && sharedProjects.length === 0 && (
+          <div className="empty-state">
+            <div className="empty-state-icon">📋</div>
+            <p className="empty-state-text">No projects yet. Create your first project to get started!</p>
+          </div>
+        )}
+
+        {/* Create Project Modal */}
+        {showCreateModal && (
+          <div className="modal-overlay" onClick={() => setShowCreateModal(false)}>
+            <div className="modal-container" onClick={(e) => e.stopPropagation()}>
+              <h2 className="modal-title">Create New Project</h2>
+              <input
+                type="text"
+                placeholder="Enter project name..."
+                value={newProjectName}
+                onChange={(e) => setNewProjectName(e.target.value)}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') handleCreateProject();
+                }}
+                autoFocus
+                className="modal-input"
+              />
+              <div className="modal-actions">
+                <button
+                  onClick={() => {
+                    setShowCreateModal(false);
+                    setNewProjectName('');
+                  }}
+                  className="modal-button modal-button-cancel"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleCreateProject}
+                  className="modal-button modal-button-primary"
+                >
+                  Create
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
