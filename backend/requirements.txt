@@ -52,10 +52,7 @@ pyasn1_modules==0.4.2
 pycparser==2.23
 pydantic==2.12.2
 pydantic_core==2.41.4
-<<<<<<< HEAD
-=======
 # PyMySQL==1.1.2  # Removed - using PostgreSQL with psycopg2-binary
->>>>>>> a39ba6a (minor UI fixes)
 pyparsing==3.2.5
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.1
