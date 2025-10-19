@@ -24,6 +24,7 @@ REFRESH_TOKEN_EXPIRE_DAYS = 7
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 # Validate required environment variables
 def validate_env_vars():
@@ -100,7 +101,8 @@ async def auth_google_callback(code: str, db: Session = Depends(get_db)):
     refresh_token = create_refresh_token(data={"sub": user.email, "user_id": user.id})
     
     # Redirect to the frontend with both tokens
-    return RedirectResponse(url=f"http://localhost:5173/auth/callback?token={access_token}&refresh_token={refresh_token}")
+    frontend_base = FRONTEND_URL.rstrip('/')
+    return RedirectResponse(url=f"{frontend_base}/auth/callback?token={access_token}&refresh_token={refresh_token}")
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(

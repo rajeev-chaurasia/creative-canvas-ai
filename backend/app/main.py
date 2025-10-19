@@ -15,9 +15,19 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
 # Configure CORS
+frontend_url = os.getenv('FRONTEND_URL')
+default_origins = [
+    "http://localhost:5173",
+    "http://localhost:3000",
+]
+allow_origins = list({
+    *( [frontend_url] if frontend_url else [] ),
+    *default_origins
+})
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=allow_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
