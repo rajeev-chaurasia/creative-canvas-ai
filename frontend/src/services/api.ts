@@ -1,7 +1,10 @@
 import axios from 'axios';
 
+// Read API base from env. Vite exposes import.meta.env.API_PATH via vite.config.ts
+export const API_BASE = (import.meta as any).env?.API_PATH || 'http://localhost:8000';
+
 const apiClient = axios.create({
-  baseURL: 'http://localhost:8000',
+  baseURL: API_BASE,
 });
 
 // Flag to prevent multiple refresh attempts
@@ -73,7 +76,7 @@ apiClient.interceptors.response.use(
 
       try {
         // Call refresh endpoint
-        const response = await axios.post('http://localhost:8000/auth/refresh', null, {
+        const response = await axios.post(`${API_BASE}/auth/refresh`, null, {
           params: { refresh_token: refreshToken }
         });
 

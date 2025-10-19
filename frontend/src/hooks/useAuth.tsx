@@ -1,5 +1,6 @@
 import { useState, createContext, useContext, useEffect, type ReactNode } from 'react';
 import axios from 'axios';
+import { API_BASE } from '../services/api';
 
 interface UserInfo {
   email?: string;
@@ -40,7 +41,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       try {
         const access = localStorage.getItem('token');
         if (!access) return;
-        const resp = await axios.get('http://localhost:8000/auth/me', {
+        const resp = await axios.get(`${API_BASE}/auth/me`, {
           headers: { Authorization: `Bearer ${access}` },
         });
         setCurrentUser({
@@ -82,7 +83,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (timeUntilExpiry < 5 * 60 * 1000) {
           console.log('Token expiring soon, refreshing...');
           
-          const response = await axios.post('http://localhost:8000/auth/refresh', null, {
+          const response = await axios.post(`${API_BASE}/auth/refresh`, null, {
             params: { refresh_token: refresh }
           });
 
@@ -113,7 +114,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       // Prefer canonical backend profile
       try {
-        const resp = await axios.get('http://localhost:8000/auth/me', {
+        const resp = await axios.get(`${API_BASE}/auth/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setCurrentUser({
@@ -149,7 +150,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const token = localStorage.getItem('token');
       if (!token) return;
       try {
-        const resp = await axios.get('http://localhost:8000/auth/me', {
+        const resp = await axios.get(`${API_BASE}/auth/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         setCurrentUser({

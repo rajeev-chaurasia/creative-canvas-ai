@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { API_BASE } from '../services/api';
 
 export const useSocket = (projectUuid: string) => {
   const socketRef = useRef<Socket | null>(null);
@@ -17,7 +18,7 @@ export const useSocket = (projectUuid: string) => {
     console.log('🔌 Attempting to connect to Socket.IO server...');
 
     // Connect to Socket.IO server with authentication
-    socketRef.current = io('http://localhost:8000', {
+  socketRef.current = io(API_BASE, {
       transports: ['websocket', 'polling'],
       auth: {
         token: accessToken

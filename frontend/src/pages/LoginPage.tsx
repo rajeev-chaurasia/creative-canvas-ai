@@ -3,7 +3,8 @@ import './LoginPage.css';
 const LoginPage = () => {
   const handleLogin = () => {
     // Redirect to the backend's Google auth endpoint
-    window.location.href = 'http://localhost:8000/auth/google';
+    const base = (import.meta as any).env?.API_PATH || 'http://localhost:8000';
+    window.location.href = `${base}/auth/google`;
   };
 
   return (
