@@ -5,6 +5,7 @@ import { useSocket } from '../hooks/useSocket';
 import apiClient from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import ShareModal from './ShareModal';
+import AIFeaturesModal from './AIFeaturesModal';
 import PalettePopover from './PalettePopover';
 import './CanvasEditor.css';
 
@@ -151,6 +152,9 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   const [projectTitle, setProjectTitle] = useState('Untitled');
   const [userRole, setUserRole] = useState<string>('owner');
   const [isGuestMode, setIsGuestMode] = useState(false);  // Track if viewing via share link as guest
+
+  // AI Features Modal state
+  const [showAIModal, setShowAIModal] = useState(false);
 
   // Active users tracking
   const [activeUsers, setActiveUsers] = useState<Array<{
@@ -373,6 +377,9 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
 
   // Connection status
   const [isConnected, setIsConnected] = useState(false);
+  const [aiEntrance, setAiEntrance] = useState(false);
+
+  
   const [cursors, setCursors] = useState<Record<string, { x: number; y: number; color: string; name: string }>>({});
 
   useEffect(() => {
@@ -540,12 +547,6 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   }>({});
   const [isCreatingSmartGroups, setIsCreatingSmartGroups] = useState(false);
   const [smartGroups, setSmartGroups] = useState<Record<string, string[]>>({});
-  const [isAnalyzingAsset, setIsAnalyzingAsset] = useState(false);
-  const [assetAnalysis, setAssetAnalysis] = useState<{
-    description: string;
-    keywords: string[];
-    alt_text: string;
-  } | null>(null);
   const [isFindingAssets, setIsFindingAssets] = useState(false);
   const [assetSuggestions, setAssetSuggestions] = useState<Array<{
     id: string;
@@ -555,6 +556,16 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     photographer: string;
     photographer_url: string;
   }>>([]);
+
+  // Trigger a small entrance animation when any AI result becomes available
+  useEffect(() => {
+    const hasResult = !!(canvasAnalysis || generatedPalette.length > 0 || generatedText.titles || Object.keys(smartGroups).length > 0);
+    if (hasResult) {
+      setAiEntrance(true);
+      const t = setTimeout(() => setAiEntrance(false), 700);
+      return () => clearTimeout(t);
+    }
+  }, [canvasAnalysis, generatedPalette, generatedText, smartGroups]);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
@@ -1411,109 +1422,6 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     }
   };
 
-  // AI Asset Analysis handler
-  const handleAnalyzeAsset = async () => {
-    if (selectedIds.length !== 1) return;
-    
-    const selectedObject = objects.find(obj => obj.id === selectedIds[0]);
-    if (!selectedObject) return;
-
-    setIsAnalyzingAsset(true);
-    
-    try {
-      // Capture the selected object as an image
-      const imageBlob = await captureObjectAsImage(selectedObject);
-      
-      // Create FormData for the API call
-      const formData = new FormData();
-      formData.append('image', imageBlob, 'asset.png');
-
-      console.log('🔍 Calling AI Asset Analysis API...', { objectType: selectedObject.type });
-      
-      // Call the AI endpoint
-      const response = await apiClient.post('/api/ai/analyze-asset', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
-
-      console.log('🔍 AI Asset Analysis Response:', response.data);
-      setAssetAnalysis(response.data);
-    } catch (error) {
-      console.error('❌ Failed to analyze asset:', error);
-      // Fallback to mock data for development
-      const mockAnalysis = {
-        description: `A ${selectedObject.type} element with ${selectedObject.fill ? `fill color ${selectedObject.fill}` : 'no fill'} and ${selectedObject.stroke ? `stroke color ${selectedObject.stroke}` : 'no stroke'}. This element contributes to the overall design composition.`,
-        keywords: [selectedObject.type, "canvas", "element", "design", selectedObject.fill ? "colored" : "uncolored", selectedObject.stroke ? "outlined" : "no-outline"],
-        alt_text: `${selectedObject.type} element on canvas with ${selectedObject.fill ? 'fill' : 'no fill'} and ${selectedObject.stroke ? 'outline' : 'no outline'}`
-      };
-      setAssetAnalysis(mockAnalysis);
-    } finally {
-      setIsAnalyzingAsset(false);
-    }
-  };
-
-  // AI Asset Suggestions handler
-  const handleFindMoreAssets = async () => {
-    if (!assetAnalysis) return;
-
-    setIsFindingAssets(true);
-    
-    try {
-      console.log('🔍 Calling AI Asset Suggestions API...', { keywords: assetAnalysis.keywords });
-      
-      // Call the AI endpoint with the keywords from asset analysis
-      const response = await apiClient.post('/api/ai/asset-suggestions', {
-        keywords: assetAnalysis.keywords
-      });
-
-      console.log('🔍 AI Asset Suggestions Response:', response.data);
-      setAssetSuggestions(response.data.suggestions);
-      setShowSuggestions(true);
-    } catch (error) {
-      console.error('❌ Failed to find asset suggestions:', error);
-      // Fallback to mock data for development
-      const mockSuggestions = [
-        {
-          id: "1",
-          url: "https://images.pexels.com/photos/1/pexels-photo-1.jpeg?auto=compress&cs=tinysrgb&w=400",
-          url_large: "https://images.pexels.com/photos/1/pexels-photo-1.jpeg?auto=compress&cs=tinysrgb&w=1200",
-          alt: "Modern geometric design element",
-          photographer: "Design Studio",
-          photographer_url: "https://www.pexels.com/@design-studio"
-        },
-        {
-          id: "2",
-          url: "https://images.pexels.com/photos/2/pexels-photo-2.jpeg?auto=compress&cs=tinysrgb&w=400",
-          url_large: "https://images.pexels.com/photos/2/pexels-photo-2.jpeg?auto=compress&cs=tinysrgb&w=1200",
-          alt: "Abstract creative composition",
-          photographer: "Creative Artist",
-          photographer_url: "https://www.pexels.com/@creative-artist"
-        },
-        {
-          id: "3",
-          url: "https://images.pexels.com/photos/3/pexels-photo-3.jpeg?auto=compress&cs=tinysrgb&w=400",
-          url_large: "https://images.pexels.com/photos/3/pexels-photo-3.jpeg?auto=compress&cs=tinysrgb&w=1200",
-          alt: "Minimalist design pattern",
-          photographer: "Minimal Design",
-          photographer_url: "https://www.pexels.com/@minimal-design"
-        },
-        {
-          id: "4",
-          url: "https://images.pexels.com/photos/4/pexels-photo-4.jpeg?auto=compress&cs=tinysrgb&w=400",
-          url_large: "https://images.pexels.com/photos/4/pexels-photo-4.jpeg?auto=compress&cs=tinysrgb&w=1200",
-          alt: "Colorful artistic element",
-          photographer: "Color Studio",
-          photographer_url: "https://www.pexels.com/@color-studio"
-        }
-      ];
-      setAssetSuggestions(mockSuggestions);
-      setShowSuggestions(true);
-    } finally {
-      setIsFindingAssets(false);
-    }
-  };
-
   // Standalone Asset Suggestions by Keywords
   const handleFindMoreAssetsByKeywords = async (keywords: string) => {
     setIsFindingAssets(true);
@@ -1777,16 +1685,36 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             </button>
           </div>
           
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <div style={{ 
-              width: '6px', 
-              height: '6px', 
+              width: '8px', 
+              height: '8px', 
               borderRadius: '50%', 
               backgroundColor: isConnected ? '#4caf50' : '#f44336'
             }} />
-            <span style={{ fontSize: '12px', color: '#888' }}>
+            <span style={{ fontSize: '12px', color: '#888', minWidth: 56 }}>
               {isConnected ? 'Connected' : 'Offline'}
             </span>
+            {/* Inline Save Indicator (responsive) - always in DOM for smooth transitions */}
+            <div
+              className={`inline-save ${(lastSaved || isSaving) ? 'show' : ''}`}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                marginLeft: 6,
+                padding: '4px 8px',
+                borderRadius: 6,
+                background: 'rgba(0,0,0,0.55)',
+                color: '#e1e1e1',
+                fontSize: '12px',
+                border: '1px solid rgba(78,201,176,0.12)',
+                whiteSpace: 'nowrap'
+              }}
+              aria-live="polite"
+            >
+              {isSaving ? '⏳ Saving…' : (lastSaved ? `✓ Saved ${lastSaved.toLocaleTimeString()}` : '')}
+            </div>
           </div>
         </div>
 
@@ -3045,454 +2973,6 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
             </button>
           )}
 
-          {/* AI Features Overview */}
-          <div style={{ marginBottom: '24px', padding: '16px', backgroundColor: '#1e1e1e', borderRadius: '8px', border: '1px solid #3e3e42' }}>
-            <h4 style={{ color: '#e1e1e1', fontSize: '13px', fontWeight: 600, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-              ✨ AI Features
-            </h4>
-            <p style={{ color: '#9d9d9d', fontSize: '11px', margin: '0 0 12px 0', lineHeight: '1.4' }}>
-              Use AI to enhance your creative workflow
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#e1e1e1' }}>
-                <span>🤖</span>
-                <span>Analyze canvas for insights</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#e1e1e1' }}>
-                <span>🎨</span>
-                <span>Generate color palettes</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#e1e1e1' }}>
-                <span>📦</span>
-                <span>Auto-group similar elements</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#e1e1e1' }}>
-                <span>✍️</span>
-                <span>Generate text content</span>
-              </div>
-            </div>
-          </div>
-
-          {/* AI Color Palette Section */}
-          {selectedIds.length === 1 && (
-            <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#1e1e1e', borderRadius: '6px', border: '1px solid #3e3e42' }}>
-              <h4 style={{ color: '#e1e1e1', fontSize: '13px', fontWeight: 600, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                🎨 AI Color Palette
-              </h4>
-              <p style={{ color: '#9d9d9d', fontSize: '11px', margin: '0 0 12px 0', lineHeight: '1.4' }}>
-                Generate a color palette from the selected object
-              </p>
-              <button
-                onClick={handleGeneratePalette}
-                disabled={isGeneratingPalette}
-                style={{
-                  width: '100%',
-                  padding: '10px 12px',
-                  backgroundColor: isGeneratingPalette ? '#555' : '#007acc',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: isGeneratingPalette ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  marginBottom: '12px',
-                  opacity: isGeneratingPalette ? 0.6 : 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '6px'
-                }}
-              >
-                {isGeneratingPalette ? (
-                  <>
-                    <div style={{ width: '12px', height: '12px', border: '2px solid #fff', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                    Analyzing...
-                  </>
-                ) : (
-                  <>
-                    ✨ Generate Palette
-                  </>
-                )}
-              </button>
-              
-              {generatedPalette.length > 0 && (
-                <div>
-                  <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    Generated Colors
-                  </label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
-                    {generatedPalette.map((color, index) => (
-                      <button
-                        key={index}
-                        onClick={() => {
-                          setStrokeColor(color);
-                          setFillColor(color);
-                        }}
-                        style={{
-                          width: '36px',
-                          height: '36px',
-                          backgroundColor: color,
-                          border: '2px solid #3e3e42',
-                          borderRadius: '6px',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s',
-                          position: 'relative',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center'
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.borderColor = '#007acc';
-                          e.currentTarget.style.transform = 'scale(1.1)';
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.borderColor = '#3e3e42';
-                          e.currentTarget.style.transform = 'scale(1)';
-                        }}
-                        title={`Click to set as stroke & fill color: ${color}`}
-                      >
-                        <span style={{ color: 'white', fontSize: '10px', fontWeight: 'bold', textShadow: '1px 1px 2px rgba(0,0,0,0.8)' }}>
-                          {index + 1}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  <p style={{ color: '#666', fontSize: '10px', margin: 0, fontStyle: 'italic' }}>
-                    Click any color to apply it as your active stroke & fill color
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* AI Asset Analysis Section */}
-          {selectedIds.length === 1 && (
-            <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#1e1e1e', borderRadius: '6px', border: '1px solid #3e3e42' }}>
-              <h4 style={{ color: '#e1e1e1', fontSize: '13px', fontWeight: 600, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                🔍 AI Asset Analysis
-              </h4>
-              <button
-                onClick={handleAnalyzeAsset}
-                disabled={isAnalyzingAsset}
-                style={{
-                  width: '100%',
-                  padding: '8px 12px',
-                  backgroundColor: isAnalyzingAsset ? '#555' : '#007acc',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: '4px',
-                  cursor: isAnalyzingAsset ? 'not-allowed' : 'pointer',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  marginBottom: '12px',
-                  opacity: isAnalyzingAsset ? 0.6 : 1
-                }}
-              >
-                {isAnalyzingAsset ? 'Analyzing...' : 'Analyze Asset'}
-              </button>
-              
-              {assetAnalysis && (
-                <div style={{ marginTop: '12px' }}>
-                  <div style={{ marginBottom: '12px' }}>
-                    <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Description
-                    </label>
-                    <p style={{ color: '#e1e1e1', fontSize: '12px', margin: 0, lineHeight: '1.4' }}>
-                      {assetAnalysis.description}
-                    </p>
-                  </div>
-                  <div style={{ marginBottom: '12px' }}>
-                    <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Keywords
-                    </label>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                      {assetAnalysis.keywords.map((keyword, index) => (
-                        <span
-                          key={index}
-                          style={{
-                            backgroundColor: '#007acc',
-                            color: 'white',
-                            padding: '2px 6px',
-                            borderRadius: '3px',
-                            fontSize: '10px',
-                            fontWeight: 500
-                          }}
-                        >
-                          {keyword}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Alt Text
-                    </label>
-                    <p style={{ color: '#e1e1e1', fontSize: '12px', margin: 0, lineHeight: '1.4' }}>
-                      {assetAnalysis.alt_text}
-                    </p>
-                  </div>
-                  
-                  {/* Find More Like This Button */}
-                  <button
-                    onClick={handleFindMoreAssets}
-                    disabled={isFindingAssets}
-                    style={{
-                      width: '100%',
-                      padding: '8px 12px',
-                      backgroundColor: isFindingAssets ? '#555' : '#28a745',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: isFindingAssets ? 'not-allowed' : 'pointer',
-                      fontSize: '12px',
-                      fontWeight: 500,
-                      marginTop: '12px',
-                      opacity: isFindingAssets ? 0.6 : 1
-                    }}
-                  >
-                    {isFindingAssets ? 'Finding...' : 'Find More Like This'}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* AI Canvas Analysis Results */}
-          {canvasAnalysis && (
-            <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#1e1e1e', borderRadius: '8px', border: '2px solid #007acc' }}>
-              <h4 style={{ color: '#e1e1e1', fontSize: '13px', fontWeight: 600, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                🤖 Canvas Analysis Complete
-              </h4>
-              <p style={{ color: '#9d9d9d', fontSize: '11px', margin: '0 0 12px 0', lineHeight: '1.4' }}>
-                AI has analyzed your canvas and provided insights below
-              </p>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Description
-                </label>
-                <div style={{ padding: '8px', backgroundColor: '#2d2d30', borderRadius: '4px', border: '1px solid #3e3e42' }}>
-                  <p style={{ color: '#e1e1e1', fontSize: '12px', margin: 0, lineHeight: '1.4' }}>
-                    {canvasAnalysis.description}
-                  </p>
-                </div>
-              </div>
-              <div style={{ marginBottom: '12px' }}>
-                <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Keywords
-                </label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                  {canvasAnalysis.keywords.map((keyword, index) => (
-                    <span
-                      key={index}
-                      style={{
-                        backgroundColor: '#007acc',
-                        color: 'white',
-                        padding: '3px 8px',
-                        borderRadius: '4px',
-                        fontSize: '10px',
-                        fontWeight: 500
-                      }}
-                    >
-                      {keyword}
-                    </span>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Alt Text
-                </label>
-                <div style={{ padding: '8px', backgroundColor: '#2d2d30', borderRadius: '4px', border: '1px solid #3e3e42' }}>
-                  <p style={{ color: '#e1e1e1', fontSize: '12px', margin: 0, lineHeight: '1.4' }}>
-                    {canvasAnalysis.alt_text}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* AI Text Generation */}
-          {canvasAnalysis && (
-            <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#1e1e1e', borderRadius: '8px', border: '1px solid #3e3e42' }}>
-              <h4 style={{ color: '#e1e1e1', fontSize: '13px', fontWeight: 600, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                ✍️ AI Text Generation
-              </h4>
-              <p style={{ color: '#9d9d9d', fontSize: '11px', margin: '0 0 12px 0', lineHeight: '1.4' }}>
-                Generate content based on your canvas analysis
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                <button
-                  onClick={() => handleGenerateText('titles')}
-                  disabled={isGeneratingText}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    backgroundColor: isGeneratingText ? '#555' : '#007acc',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: isGeneratingText ? 'not-allowed' : 'pointer',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    opacity: isGeneratingText ? 0.6 : 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  {isGeneratingText ? (
-                    <>
-                      <div style={{ width: '12px', height: '12px', border: '2px solid #fff', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      💡 Generate Title Ideas
-                    </>
-                  )}
-                </button>
-                <button
-                  onClick={() => handleGenerateText('brief')}
-                  disabled={isGeneratingText}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    backgroundColor: isGeneratingText ? '#555' : '#28a745',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: isGeneratingText ? 'not-allowed' : 'pointer',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    opacity: isGeneratingText ? 0.6 : 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  {isGeneratingText ? (
-                    <>
-                      <div style={{ width: '12px', height: '12px', border: '2px solid #fff', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      📝 Generate Brief
-                    </>
-                  )}
-                </button>
-                <button
-                  onClick={() => handleGenerateText('social_media')}
-                  disabled={isGeneratingText}
-                  style={{
-                    width: '100%',
-                    padding: '10px 12px',
-                    backgroundColor: isGeneratingText ? '#555' : '#ff6b35',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    cursor: isGeneratingText ? 'not-allowed' : 'pointer',
-                    fontSize: '12px',
-                    fontWeight: 500,
-                    opacity: isGeneratingText ? 0.6 : 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  {isGeneratingText ? (
-                    <>
-                      <div style={{ width: '12px', height: '12px', border: '2px solid #fff', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      📱 Generate Social Media
-                    </>
-                  )}
-                </button>
-              </div>
-              
-              {(generatedText.titles || generatedText.brief || generatedText.social_media) && (
-                <div style={{ marginTop: '12px', padding: '12px', backgroundColor: '#2d2d30', borderRadius: '6px', border: '1px solid #3e3e42' }}>
-                  <label style={{ display: 'block', color: '#9d9d9d', fontSize: '11px', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    Generated Content
-                  </label>
-                  
-                  {/* Titles */}
-                  {generatedText.titles && (
-                    <div style={{ marginBottom: '12px' }}>
-                      <label style={{ display: 'block', color: '#007acc', fontSize: '11px', marginBottom: '4px', fontWeight: 600 }}>
-                        💡 Title Ideas
-                      </label>
-                      <div style={{ padding: '8px', backgroundColor: '#1e1e1e', borderRadius: '4px', border: '1px solid #3e3e42' }}>
-                        <p style={{ color: '#e1e1e1', fontSize: '12px', margin: 0, lineHeight: '1.5' }}>
-                          {generatedText.titles}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Brief */}
-                  {generatedText.brief && (
-                    <div style={{ marginBottom: '12px' }}>
-                      <label style={{ display: 'block', color: '#28a745', fontSize: '11px', marginBottom: '4px', fontWeight: 600 }}>
-                        📝 Creative Brief
-                      </label>
-                      <div style={{ padding: '8px', backgroundColor: '#1e1e1e', borderRadius: '4px', border: '1px solid #3e3e42' }}>
-                        <p style={{ color: '#e1e1e1', fontSize: '12px', margin: 0, lineHeight: '1.5', whiteSpace: 'pre-line' }}>
-                          {generatedText.brief}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                  
-                  {/* Social Media */}
-                  {generatedText.social_media && (
-                    <div>
-                      <label style={{ display: 'block', color: '#ff6b35', fontSize: '11px', marginBottom: '4px', fontWeight: 600 }}>
-                        📱 Social Media Captions
-                      </label>
-                      <div style={{ padding: '8px', backgroundColor: '#1e1e1e', borderRadius: '4px', border: '1px solid #3e3e42' }}>
-                        <p style={{ color: '#e1e1e1', fontSize: '12px', margin: 0, lineHeight: '1.5', whiteSpace: 'pre-line' }}>
-                          {generatedText.social_media}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* AI Smart Groups Results */}
-          {Object.keys(smartGroups).length > 0 && (
-            <div style={{ marginBottom: '20px', padding: '16px', backgroundColor: '#1e1e1e', borderRadius: '8px', border: '2px solid #28a745' }}>
-              <h4 style={{ color: '#e1e1e1', fontSize: '13px', fontWeight: 600, margin: '0 0 8px 0', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                📦 Smart Groups Created
-              </h4>
-              <p style={{ color: '#9d9d9d', fontSize: '11px', margin: '0 0 12px 0', lineHeight: '1.4' }}>
-                AI has automatically grouped your canvas elements
-              </p>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {Object.entries(smartGroups).map(([groupName, objectIds]) => (
-                  <div key={groupName} style={{ padding: '12px', backgroundColor: '#2d2d30', borderRadius: '6px', border: '1px solid #3e3e42' }}>
-                    <div style={{ color: '#e1e1e1', fontSize: '12px', fontWeight: 500, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontSize: '14px' }}>📁</span>
-                      {groupName}
-                    </div>
-                    <div style={{ color: '#9d9d9d', fontSize: '11px' }}>
-                      {objectIds.length} element{objectIds.length !== 1 ? 's' : ''} grouped together
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           <div style={{ 
             marginTop: 'auto', 
             paddingTop: '20px',
@@ -3523,25 +3003,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         </div>
       </div>
 
-      {/* Non-intrusive Save Status Indicator */}
-      {(lastSaved || isSaving) && (
-        <div
-          style={{
-            position: 'fixed',
-            right: 16,
-            bottom: showMobileBar ? 76 : 16,
-            backgroundColor: 'rgba(0, 0, 0, 0.6)',
-            color: '#e1e1e1',
-            padding: '6px 10px',
-            borderRadius: 8,
-            fontSize: '11px',
-            zIndex: 300
-          }}
-          aria-live="polite"
-        >
-          {isSaving ? 'Saving…' : `Saved ${lastSaved?.toLocaleTimeString()}`}
-        </div>
-      )}
+      {/* Save indicator moved inline next to Connected (see header) */}
 
       {generatedPalette.length > 0 && paletteAnchor && (
         <PalettePopover
@@ -3683,6 +3145,38 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
           projectTitle={projectTitle}
           onClose={() => setShowShareModal(false)}
         />
+      )}
+
+      {/* AI Features Modal */}
+      <AIFeaturesModal
+        isOpen={showAIModal}
+        onClose={() => setShowAIModal(false)}
+        isAnalyzingCanvas={isAnalyzingCanvas}
+        canvasAnalysis={canvasAnalysis}
+        isGeneratingPalette={isGeneratingPalette}
+        generatedPalette={generatedPalette}
+        isGeneratingText={isGeneratingText}
+        generatedText={generatedText}
+        isCreatingSmartGroups={isCreatingSmartGroups}
+        smartGroups={smartGroups}
+        hasAnyAnalysis={!!(canvasAnalysis || generatedPalette.length > 0 || generatedText.titles || Object.keys(smartGroups).length > 0)}
+        onAnalyzeCanvas={handleAnalyzeCanvas}
+        onGeneratePalette={handleGeneratePalette}
+        onGenerateText={() => handleGenerateText('titles')}
+        onAutoGroup={handleSmartGroups}
+        selectedIds={selectedIds}
+      />
+
+      {/* AI Features Floating Button */}
+      {!showAIModal && (
+        <button
+          className={`ai-features-button ${(canvasAnalysis || generatedPalette.length > 0 || generatedText.titles || Object.keys(smartGroups).length > 0) ? 'ai-features-button--with-indicator' : ''}`}
+          onClick={() => setShowAIModal(true)}
+          title="AI Features"
+          aria-label="Open AI Features"
+        >
+          <span className={`ai-features-icon ${aiEntrance ? 'ai-features-icon--entrance' : ''}`}>✨</span>
+        </button>
       )}
 
       {/* View-Only Mode Banner */}
