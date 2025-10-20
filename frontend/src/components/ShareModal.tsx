@@ -30,7 +30,6 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
   const [users, setUsers] = useState<ShareUser[]>([]);
   const [pendingInvites, setPendingInvites] = useState<PendingInvite[]>([]);
   const [loading, setLoading] = useState(false);
-  const [shareLink, setShareLink] = useState('');
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [publicLink, setPublicLink] = useState<string | null>(null);
   const [isGeneratingLink, setIsGeneratingLink] = useState(false);
@@ -42,7 +41,6 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
     // remember opener so we can restore focus when modal closes
     openerRef.current = document.activeElement as HTMLElement | null;
     loadShares();
-    setShareLink(`${window.location.origin}/canvas/${projectUuid}`);
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') handleClose();
@@ -157,11 +155,6 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
     }
   };
 
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(shareLink);
-    setStatusMessage('Link copied to clipboard!');
-  };
-
   const handleGeneratePublicLink = async () => {
     setIsGeneratingLink(true);
     try {
@@ -226,37 +219,17 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
           <div className="share-status" role="status">{statusMessage}</div>
         )}
 
-        {/* Share Link */}
+        {/* Shareable Link Section - Google Docs Style */}
         <div className="share-section">
           <label className="share-label">
-            🔗 Share Link
+            🔗 Shareable Link
           </label>
-          <div className="share-input-group">
-            <input
-              type="text"
-              value={shareLink}
-              readOnly
-              className="share-input"
-            />
-            <button
-              onClick={handleCopyLink}
-              className="share-button-primary"
-            >
-              📋 Copy
-            </button>
-          </div>
-        </div>
-
-        {/* Public Link Sharing - Anyone with Link can View (Google Docs style) */}
-        <div className="share-section">
-          <label className="share-label">
-            🌐 Anyone with Link
-          </label>
-          <p style={{ fontSize: '0.9rem', color: '#999', margin: '0 0 12px 0' }}>
-            Generate a link that anyone can use to view this project. They'll need to log in to be added to the viewer list.
-          </p>
+          
           {publicLink ? (
             <>
+              <p style={{ fontSize: '0.9rem', color: '#999', margin: '0 0 12px 0' }}>
+                Anyone with this link can view the project. When they log in, they'll be added to the viewer list. Guests can also view and download without logging in.
+              </p>
               <div className="share-input-group">
                 <input
                   type="text"
@@ -276,18 +249,23 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
                 className="share-button-secondary"
                 style={{ marginTop: '8px', width: '100%' }}
               >
-                🔒 Disable Public Link
+                🔒 Disable Link
               </button>
             </>
           ) : (
-            <button
-              onClick={handleGeneratePublicLink}
-              disabled={isGeneratingLink}
-              className="share-button-primary"
-              style={{ width: '100%' }}
-            >
-              {isGeneratingLink ? '🔄 Generating...' : '🔓 Generate Public Link'}
-            </button>
+            <>
+              <p style={{ fontSize: '0.9rem', color: '#999', margin: '0 0 12px 0' }}>
+                Generate a link that anyone can use to view this project. No login required—guests can view and download. Logged-in users are automatically added to your viewer list.
+              </p>
+              <button
+                onClick={handleGeneratePublicLink}
+                disabled={isGeneratingLink}
+                className="share-button-primary"
+                style={{ width: '100%' }}
+              >
+                {isGeneratingLink ? '🔄 Generating...' : '🔓 Generate Shareable Link'}
+              </button>
+            </>
           )}
         </div>
 
