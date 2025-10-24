@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Stage, Layer, Line, Rect, Circle, Text as KonvaText, Transformer, Label, Tag, Image as KonvaImage, Group } from 'react-konva';
 import Konva from 'konva';
 import { useSocket } from '../hooks/useSocket';
+import useGuest from '../hooks/useGuest';
 import apiClient from '../services/api';
 import { useNavigate } from 'react-router-dom';
 import ShareModal from './ShareModal';
@@ -42,7 +43,7 @@ interface CanvasEditorProps {
   projectUuid: string;
 }
 
-const ImageComponent = ({ imageUrl, ...props }: { imageUrl: string; [key: string]: any }) => {
+const ImageComponent = ({ imageUrl, ...props }: { imageUrl: string; [key: string]: unknown }) => {
   const [image, setImage] = useState<HTMLImageElement | null>(null);
 
   useEffect(() => {
@@ -143,9 +144,21 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   const layerRef = useRef<Konva.Layer>(null);
   const textEditRef = useRef<HTMLTextAreaElement>(null);
   const cropRectRef = useRef<Konva.Rect>(null);
+  const handleDeleteRef = useRef<(() => void) | null>(null);
   
   const socket = useSocket(projectUuid);
   const navigate = useNavigate();
+  
+  // Guest draft helper (Phase 1 localStorage) - token checked on mount
+  const { isGuest, saveDraft } = useGuest(Boolean(localStorage.getItem('token')));
+  
+  // Track pending save to debounce multiple edits into single save
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  // Stabilize clientProjectKey - use projectUuid directly, don't store in localStorage
+  // to avoid conflicts when switching between projects
+  const clientProjectKey = projectUuid;
+  const [showAuthPrompt, setShowAuthPrompt] = useState(false);
 
   // Share modal state
   const [showShareModal, setShowShareModal] = useState(false);
@@ -167,7 +180,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
 
   const saveToHistory = useCallback((newObjects: CanvasObject[]) => {
     const newHistory = history.slice(0, historyStep + 1);
-    newHistory.push(JSON.parse(JSON.stringify(newObjects)));
+    newHistory.push(JSON.parse(JSON.stringify(newObjects)) as CanvasObject[]);
     setHistory(newHistory);
     setHistoryStep(newHistory.length - 1);
   }, [history, historyStep]);
@@ -218,6 +231,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   }, [handleCopy, handlePaste]);
 
   // Keyboard shortcuts
+  // We intentionally do not include `handleDelete` in deps because it's declared later
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Cmd/Ctrl + Z = Undo
@@ -254,7 +268,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
       else if ((e.key === 'Delete' || e.key === 'Backspace') && selectedIds.length > 0 && !editingText) {
         if (userRole === 'viewer') return;
         e.preventDefault();
-        handleDelete();
+        handleDeleteRef.current?.();
       }
       // Escape = Deselect
       else if (e.key === 'Escape') {
@@ -274,7 +288,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleUndo, handleRedo, handleCopy, handlePaste, handleDuplicate, selectedIds, editingText]);
+  }, [handleUndo, handleRedo, handleCopy, handlePaste, handleDuplicate, selectedIds, editingText, userRole]);
 
   // Handle window resize
   useEffect(() => {
@@ -316,22 +330,53 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
           setIsGuestMode(true);
         }
 
-        const response = await apiClient.get(`/api/projects/${projectUuid}`);
+        // Determine endpoint based on authentication state
+        const endpoint = isGuest 
+          ? `/guest/projects/${projectUuid}` 
+          : `/api/projects/${projectUuid}`;
+        
+        const response = await apiClient.get(endpoint);
         setProjectTitle(response.data.title || 'Untitled');
         setUserRole(response.data.user_role || 'owner');
         if (response.data.canvas_state && response.data.canvas_state.objects) {
           const loadedObjects = response.data.canvas_state.objects;
           setObjects(loadedObjects);
-          saveToHistory(loadedObjects);
+          // Initialize history with loaded objects
+          const newHistory = [JSON.parse(JSON.stringify(loadedObjects))];
+          setHistory(newHistory);
+          setHistoryStep(0);
         } else {
-          saveToHistory([]);
+          // Initialize empty history
+          setHistory([]);
+          setHistoryStep(-1);
         }
+        // If there's a pending action (after sign-in), resume it (open AI or Share modal)
+        try {
+          const pendingRaw = localStorage.getItem('pending_action');
+          if (pendingRaw) {
+            const pending = JSON.parse(pendingRaw);
+            if (pending.action === 'open_ai') setShowAIModal(true);
+            else if (pending.action === 'open_share') setShowShareModal(true);
+            // clear pending action
+            localStorage.removeItem('pending_action');
+          }
+        } catch { /* ignore */ }
       } catch (error) {
         console.error('Failed to load canvas:', error);
       }
     };
 
     loadCanvas();
+  }, [projectUuid, isGuest]);
+
+  // Cleanup: Clear the local draft when leaving canvas editor
+  // This prevents the draft from persisting to the next project or dashboard session
+  useEffect(() => {
+    return () => {
+      // On unmount or projectUuid change, clear the temporary local draft
+      // (but keep the server copy via the autosave)
+      localStorage.removeItem('canvas-guest-draft');
+    };
   }, [projectUuid]);
 
   // Manual save function
@@ -339,6 +384,18 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
   const handleManualSave = async () => {
+    if (isGuest) {
+      // For guests, save draft to server under guest session
+      try {
+        await saveDraft(objects, projectTitle, clientProjectKey);
+        setLastSaved(new Date());
+        alert('Draft saved to your guest session. Sign in to claim it.');
+      } catch {
+        setShowAuthPrompt(true);
+      }
+      return;
+    }
+
     setIsSaving(true);
     try {
       await apiClient.patch(`/api/projects/${projectUuid}`, {
@@ -353,27 +410,47 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     }
   };
 
-  // Auto-save
+  // Auto-save with debounce
+  // Debounce: batch multiple edits into single save
+  // Only calls saveDraft once per 2s of inactivity, not on every edit
   useEffect(() => {
-    const saveCanvas = async () => {
-      try {
-        await apiClient.patch(`/api/projects/${projectUuid}`, {
-          canvas_state: { objects }
-        });
-        setLastSaved(new Date());
-      } catch (error) {
-        console.error('❌ Failed to save canvas:', error);
-      }
-    };
+    // Clear previous timeout
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
 
-    const timeoutId = setTimeout(() => {
-      if (objects.length >= 0) {
-        saveCanvas();
+    // Always set a new timeout when objects change
+    // This ensures we save after 2s of inactivity
+    saveTimeoutRef.current = setTimeout(() => {
+      if (isGuest) {
+        try {
+          saveDraft(objects, projectTitle, clientProjectKey);
+          setLastSaved(new Date());
+        } catch (e) {
+          console.error('Failed to save guest draft:', e);
+        }
+        return;
       }
+
+      (async () => {
+        try {
+          await apiClient.patch(`/api/projects/${projectUuid}`, {
+            canvas_state: { objects }
+          });
+          setLastSaved(new Date());
+        } catch (error) {
+          console.error('❌ Failed to save canvas:', error);
+        }
+      })();
     }, 2000);
 
-    return () => clearTimeout(timeoutId);
-  }, [projectUuid, objects]);
+    // Cleanup: clear timeout on unmount or when dependencies change
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [objects, projectUuid, isGuest, saveDraft, projectTitle, clientProjectKey]);
 
   // Connection status
   const [isConnected, setIsConnected] = useState(false);
@@ -483,9 +560,9 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     };
   }, [socket]);
 
-  const broadcastUpdate = (action: string, object?: CanvasObject, objectId?: string) => {
+  const broadcastUpdate = useCallback((action: string, object?: CanvasObject, objectId?: string) => {
     if (socket) {
-  console.debug('Sending canvas_update:', action, object?.id || objectId);
+      console.debug('Sending canvas_update:', action, object?.id || objectId);
       socket.emit('canvas_update', {
         projectUuid,
         data: { action, object, objectId }
@@ -493,7 +570,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     } else {
       console.warn('No socket connection, cannot broadcast');
     }
-  };
+  }, [socket, projectUuid]);
 
   useEffect(() => {
     if (!transformerRef.current || !layerRef.current) return;
@@ -619,7 +696,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         stroke: strokeColor,
         strokeWidth,
       };
-      const updated = [...objects, newRect];
+    const updated = [...objects, newRect];
       setObjects(updated);
       saveToHistory(updated);
       broadcastUpdate('add', newRect);
@@ -634,7 +711,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         stroke: strokeColor,
         strokeWidth,
       };
-      const updated = [...objects, newCircle];
+    const updated = [...objects, newCircle];
       setObjects(updated);
       saveToHistory(updated);
       broadcastUpdate('add', newCircle);
@@ -786,7 +863,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         pageX: touch.pageX,
         pageY: touch.pageY
       }
-    } as any;
+  } as unknown as Konva.KonvaEventObject<MouseEvent>;
     
     handleMouseDown(syntheticEvent);
   };
@@ -813,7 +890,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         pageX: touch.pageX,
         pageY: touch.pageY
       }
-    } as any;
+  } as unknown as Konva.KonvaEventObject<MouseEvent>;
     
     handleMouseMove(syntheticEvent);
   };
@@ -840,16 +917,20 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
     }
   };
 
-  const handleDelete = () => {
+  const handleDelete = useCallback(() => {
     if (userRole === 'viewer') return; // View-only mode
     if (selectedIds.length === 0) return;
-    
+
     const updated = objects.filter(obj => !selectedIds.includes(obj.id));
     setObjects(updated);
     saveToHistory(updated);
     selectedIds.forEach(id => broadcastUpdate('delete', undefined, id));
     setSelectedIds([]);
-  };
+  }, [userRole, selectedIds, objects, saveToHistory, broadcastUpdate]);
+
+  useEffect(() => {
+    handleDeleteRef.current = handleDelete;
+  }, [handleDelete]);
 
   const handleTextDblClick = (id: string) => {
     if (userRole === 'viewer') return; // View-only mode
@@ -1173,6 +1254,12 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
 
   // AI Color Palette handler
   const handleGeneratePalette = async () => {
+    // Guard: require auth
+    if (isGuest) {
+      setShowAuthPrompt(true);
+      return;
+    }
+
     if (selectedIds.length !== 1) return;
     
     const selectedObject = objects.find(obj => obj.id === selectedIds[0]);
@@ -1211,6 +1298,12 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
 
   // AI Color Palette from entire canvas
   const handleGeneratePaletteFromCanvas = async () => {
+    // Guard: require auth
+    if (isGuest) {
+      setShowAuthPrompt(true);
+      return;
+    }
+
     setIsGeneratingPalette(true);
     
     try {
@@ -1243,7 +1336,14 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
   };
 
   // AI Canvas Analysis handler
+  // AI Handlers with guest auth checks
   const handleAnalyzeCanvas = async () => {
+    // Guard: require auth
+    if (isGuest) {
+      setShowAuthPrompt(true);
+      return;
+    }
+
     setIsAnalyzingCanvas(true);
     
     try {
@@ -1281,6 +1381,12 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
 
   // AI Text Generation handler
   const handleGenerateText = async (textType: 'titles' | 'brief' | 'social_media') => {
+    // Guard: require auth
+    if (isGuest) {
+      setShowAuthPrompt(true);
+      return;
+    }
+
     if (!canvasAnalysis) return;
 
     setIsGeneratingText(true);
@@ -1328,6 +1434,12 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
 
   // AI Smart Groups handler
   const handleSmartGroups = async () => {
+    // Guard: require auth
+    if (isGuest) {
+      setShowAuthPrompt(true);
+      return;
+    }
+
     setIsCreatingSmartGroups(true);
     
     try {
@@ -1424,6 +1536,12 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
 
   // Standalone Asset Suggestions by Keywords
   const handleFindMoreAssetsByKeywords = async (keywords: string) => {
+    // Guard: require auth
+    if (isGuest) {
+      setShowAuthPrompt(true);
+      return;
+    }
+
     setIsFindingAssets(true);
     
     try {
@@ -2116,7 +2234,15 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
 
           {userRole !== 'viewer' && (
             <button
-              onClick={() => setShowShareModal(true)}
+              onClick={() => {
+                // Guard: require auth
+                if (isGuest) {
+                  localStorage.setItem('pending_action', JSON.stringify({ action: 'open_share', projectUuid }));
+                  setShowAuthPrompt(true);
+                  return;
+                }
+                setShowShareModal(true);
+              }}
               style={{
                 padding: '6px 16px',
                 backgroundColor: '#007acc',
@@ -2307,7 +2433,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                       tension={0.5}
                       lineCap="round"
                       lineJoin="round"
-                      globalCompositeOperation={obj.globalCompositeOperation as any || 'source-over'}
+                      globalCompositeOperation={(obj.globalCompositeOperation as unknown as GlobalCompositeOperation) || 'source-over'}
                       onClick={(e) => handleObjectClick(e, obj.id)}
                     />
                   );
@@ -2328,6 +2454,15 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                       scaleY={obj.scaleY}
                       draggable={tool === 'select' && userRole !== 'viewer'}
                       onClick={(e) => handleObjectClick(e, obj.id)}
+                      onDragEnd={(e) => {
+                        const node = e.target;
+                        const updated = objects.map(o => 
+                          o.id === obj.id ? { ...o, x: node.x(), y: node.y() } : o
+                        );
+                        setObjects(updated);
+                        saveToHistory(updated);
+                        broadcastUpdate('edit', updated.find(o => o.id === obj.id));
+                      }}
                       onTransformEnd={handleTransformEnd}
                     />
                   );
@@ -2347,6 +2482,15 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                       scaleY={obj.scaleY}
                       draggable={tool === 'select' && userRole !== 'viewer'}
                       onClick={(e) => handleObjectClick(e, obj.id)}
+                      onDragEnd={(e) => {
+                        const node = e.target;
+                        const updated = objects.map(o => 
+                          o.id === obj.id ? { ...o, x: node.x(), y: node.y() } : o
+                        );
+                        setObjects(updated);
+                        saveToHistory(updated);
+                        broadcastUpdate('edit', updated.find(o => o.id === obj.id));
+                      }}
                       onTransformEnd={handleTransformEnd}
                     />
                   );
@@ -2366,6 +2510,15 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                       draggable={tool === 'select' && userRole !== 'viewer'}
                       onClick={(e) => handleObjectClick(e, obj.id)}
                       onDblClick={() => handleTextDblClick(obj.id)}
+                      onDragEnd={(e) => {
+                        const node = e.target;
+                        const updated = objects.map(o => 
+                          o.id === obj.id ? { ...o, x: node.x(), y: node.y() } : o
+                        );
+                        setObjects(updated);
+                        saveToHistory(updated);
+                        broadcastUpdate('edit', updated.find(o => o.id === obj.id));
+                      }}
                       onTransformEnd={handleTransformEnd}
                     />
                   );
@@ -2390,7 +2543,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                       />
                     );
                   } else {
-                    const img = obj.imageSrc ? loadImage(obj.imageSrc) : null;
+                    const img = obj.imageSrc ? (loadImage(obj.imageSrc) as HTMLImageElement | HTMLCanvasElement) : undefined;
                     // Draw Konva Image with cropping and transforms
                     return (
                       <KonvaImage
@@ -2398,7 +2551,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                         id={obj.id}
                         x={obj.x}
                         y={obj.y}
-                        image={img as any}
+                        image={img as unknown as CanvasImageSource | undefined}
                         width={obj.width}
                         height={obj.height}
                         rotation={obj.rotation}
@@ -2407,9 +2560,18 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                         draggable={tool === 'select' && userRole !== 'viewer'}
                         crop={{ x: obj.cropX || 0, y: obj.cropY || 0, width: obj.cropWidth || obj.width || 0, height: obj.cropHeight || obj.height || 0 }}
                         onClick={(e) => handleObjectClick(e, obj.id)}
-                      onTransformEnd={handleTransformEnd}
-                    />
-                  );
+                        onDragEnd={(e) => {
+                          const node = e.target;
+                          const updated = objects.map(o => 
+                            o.id === obj.id ? { ...o, x: node.x(), y: node.y() } : o
+                          );
+                          setObjects(updated);
+                          saveToHistory(updated);
+                          broadcastUpdate('edit', updated.find(o => o.id === obj.id));
+                        }}
+                        onTransformEnd={handleTransformEnd}
+                      />
+                    );
                   }
                 }
                 return null;
@@ -3138,8 +3300,8 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
         </div>
       )}
 
-      {/* Share Modal */}
-      {showShareModal && (
+      {/* Share Modal - Only show for authenticated users, not guests */}
+      {showShareModal && !isGuest && Boolean(localStorage.getItem('token')) && (
         <ShareModal
           projectUuid={projectUuid}
           projectTitle={projectTitle}
@@ -3171,12 +3333,52 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
       {!showAIModal && (
         <button
           className={`ai-features-button ${(canvasAnalysis || generatedPalette.length > 0 || generatedText.titles || Object.keys(smartGroups).length > 0) ? 'ai-features-button--with-indicator' : ''}`}
-          onClick={() => setShowAIModal(true)}
+          onClick={() => {
+            if (isGuest) {
+              // store intended action so we can resume after sign-in
+              localStorage.setItem('pending_action', JSON.stringify({ action: 'open_ai', projectUuid }));
+              setShowAuthPrompt(true);
+              return;
+            }
+            setShowAIModal(true);
+          }}
           title="AI Features"
           aria-label="Open AI Features"
         >
           <span className={`ai-features-icon ${aiEntrance ? 'ai-features-icon--entrance' : ''}`}>✨</span>
         </button>
+      )}
+
+      {/* Sign-in prompt for guests trying gated actions */}
+      {showAuthPrompt && (
+        <div className="modal-overlay" onClick={() => setShowAuthPrompt(false)}>
+          <div className="modal-container" onClick={(e) => e.stopPropagation()}>
+            <h2 className="modal-title">Sign in to access this feature</h2>
+            <p>Sign in to save your project to your account, share it with others, and use AI features.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' }}>
+              <button 
+                className="btn-primary" 
+                onClick={() => { 
+                  // Store pending action and current canvas state
+                  localStorage.setItem('pending_action', JSON.stringify({ 
+                    action: 'return_to_canvas',
+                    canvas_path: window.location.pathname
+                  }));
+                  // Redirect to Google OAuth
+                  window.location.href = `${import.meta.env.VITE_API_BASE || 'http://localhost:8000'}/auth/google`; 
+                }}
+              >
+                Sign in with Google
+              </button>
+              <button 
+                className="btn-secondary" 
+                onClick={() => setShowAuthPrompt(false)}
+              >
+                Continue as guest
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* View-Only Mode Banner */}

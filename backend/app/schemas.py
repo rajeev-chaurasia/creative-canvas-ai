@@ -18,7 +18,7 @@ class ProjectUpdate(BaseModel):
 class Project(ProjectBase):
     id: int
     uuid: str
-    owner_id: int
+    owner_id: Optional[int] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
     user_role: Optional[str] = None  # Added dynamically in permissions.py
@@ -69,6 +69,12 @@ class ProjectListResponse(BaseModel):
     """Response for listing user's projects"""
     owned: List[Project]
     shared: List[Project]
+
+
+class GuestClaimRequest(BaseModel):
+    """Request body for claiming guest projects after auth"""
+    guest_id: str
+    project_uuids: Optional[List[str]] = None  # If omitted, claim all guest projects
 
 class UserBase(BaseModel):
     email: str

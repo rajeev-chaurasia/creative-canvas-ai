@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { useState, createContext, useContext, useEffect, type ReactNode } from 'react';
 import axios from 'axios';
 import { API_BASE } from '../services/api';
@@ -23,6 +24,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const login = (token: string) => {
     localStorage.setItem('token', token);
+
+    // Clear guest session now that user is authenticated
+    try {
+      localStorage.removeItem('guest_session');
+      localStorage.removeItem('canvas-guest-draft');
+      localStorage.removeItem('client_project_key');
+      localStorage.removeItem('guest_project_map');
+    } catch {
+      // ignore cleanup errors
+    }
+
     // Try to decode token payload for user info
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
@@ -32,11 +44,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         avatarUrl: payload.picture || undefined,
       };
       setCurrentUser(user);
-    } catch (e) {
+    } catch {
       setCurrentUser(null);
     }
+
     setIsAuthenticated(true);
-    // Also try to fetch canonical profile from backend
+
+    // Also try to fetch canonical profile from backend (best-effort)
     (async () => {
       try {
         const access = localStorage.getItem('token');
@@ -48,9 +62,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           email: resp.data.email,
           name: resp.data.full_name || undefined,
         });
-      } catch (err) {
-        // If the request fails, keep the decoded token info as fallback
-        console.warn('Could not fetch /auth/me, using token decode fallback');
+      } catch {
+        // ignore - keep token-decoded user if available
       }
     })();
   };
@@ -62,20 +75,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setCurrentUser(null);
   };
 
-  // Proactive token refresh - refresh 5 minutes before expiry
+  // Proactive token refresh - refresh periodically
   useEffect(() => {
     if (!isAuthenticated) return;
 
     const refreshToken = async () => {
       const token = localStorage.getItem('token');
       const refresh = localStorage.getItem('refresh_token');
-
       if (!token || !refresh) return;
 
       try {
-        // Decode token to check expiry (without verification)
         const payload = JSON.parse(atob(token.split('.')[1]));
-        const expiresAt = payload.exp * 1000; // Convert to milliseconds
+        const expiresAt = payload.exp * 1000; // ms
         const now = Date.now();
         const timeUntilExpiry = expiresAt - now;
 
@@ -84,32 +95,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           const response = await axios.post(`${API_BASE}/auth/refresh`, null, {
             params: { refresh_token: refresh }
           });
-
           const { access_token } = response.data;
           localStorage.setItem('token', access_token);
         }
-      } catch (error) {
-        console.error('Failed to refresh token:', error);
-        // Don't logout here - let the interceptor handle it
+      } catch {
+        // ignore
       }
     };
 
-    // Check immediately
     refreshToken();
-
-    // Check every minute
     const interval = setInterval(refreshToken, 60 * 1000);
-
     return () => clearInterval(interval);
   }, [isAuthenticated]);
 
-  // On mount, if token exists but currentUser is empty, try to populate from token
+  // On mount, try to populate currentUser from backend or token
   useEffect(() => {
     const init = async () => {
       const token = localStorage.getItem('token');
       if (!token) return;
 
-      // Prefer canonical backend profile
       try {
         const resp = await axios.get(`${API_BASE}/auth/me`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -120,20 +124,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         });
         setIsAuthenticated(true);
         return;
-      } catch (err) {
+      } catch {
         // fallback to token decode
       }
 
       try {
         const payload = JSON.parse(atob(token.split('.')[1]));
-        const user = {
+        setCurrentUser({
           email: payload.sub,
           name: payload.name || undefined,
           avatarUrl: payload.picture || undefined,
-        };
-        setCurrentUser(user);
+        });
         setIsAuthenticated(true);
-      } catch (e) {
+      } catch {
         // ignore
       }
     };
@@ -154,8 +157,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           email: resp.data.email,
           name: resp.data.full_name || undefined,
         });
-      } catch (err) {
-        console.warn('Failed to refresh currentUser after token refresh');
+      } catch {
+        // ignore
       }
     };
 

@@ -1,7 +1,9 @@
 import axios from 'axios';
+import type { AxiosError, AxiosRequestConfig, AxiosRequestHeaders } from 'axios';
 
 // Read API base from env. Vite exposes import.meta.env.API_PATH via vite.config.ts
-export const API_BASE = (import.meta as any).env?.API_PATH || 'http://localhost:8000';
+const env = (import.meta as unknown as { env?: { API_PATH?: string } }).env;
+export const API_BASE = env?.API_PATH || 'http://localhost:8000';
 
 const apiClient = axios.create({
   baseURL: API_BASE,
@@ -9,14 +11,15 @@ const apiClient = axios.create({
 
 // Flag to prevent multiple refresh attempts
 let isRefreshing = false;
-let failedQueue: any[] = [];
+type QueueItem = { resolve: (token: string) => void; reject: (err: unknown) => void };
+let failedQueue: QueueItem[] = [];
 
-const processQueue = (error: any, token: string | null = null) => {
+const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue.forEach((prom) => {
     if (error) {
       prom.reject(error);
     } else {
-      prom.resolve(token);
+      prom.resolve(token as string);
     }
   });
 
@@ -28,7 +31,28 @@ apiClient.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
+      const headers = config.headers as AxiosRequestHeaders | undefined;
+      if (headers) headers.Authorization = `Bearer ${token}`;
+      else config.headers = { Authorization: `Bearer ${token}` } as unknown as AxiosRequestHeaders;
+    }
+    // Attach guest-id header automatically for guest endpoints when a guest session exists
+    try {
+      const raw = localStorage.getItem('guest_session');
+      if (raw) {
+        const session = JSON.parse(raw);
+        const guestId = session?.guest_id;
+        if (guestId) {
+          const url = (config.url || '').toString();
+          // If this request targets a guest route, attach the header
+          if (url.startsWith('/guest') || url.includes('/guest/')) {
+            const headers = config.headers as AxiosRequestHeaders | undefined;
+            if (headers) headers['guest-id'] = guestId as string;
+            else config.headers = { 'guest-id': guestId } as unknown as AxiosRequestHeaders;
+          }
+        }
+      }
+    } catch (e) {
+      // ignore JSON parse errors
     }
     return config;
   },
@@ -42,18 +66,31 @@ apiClient.interceptors.response.use(
   (response) => {
     return response;
   },
-  async (error) => {
-    const originalRequest = error.config;
+  async (error: unknown) => {
+    if (!axios.isAxiosError(error)) return Promise.reject(error);
+    const axiosErr = error as AxiosError;
+    const originalRequest = axiosErr.config as AxiosRequestConfig & { _retry?: boolean };
 
     // If error is 401 and we haven't tried to refresh yet
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (axiosErr.response?.status === 401 && !originalRequest._retry) {
+      // Check if user is guest (has guest_session but no token)
+      const hasGuestSession = Boolean(localStorage.getItem('guest_session'));
+      const hasToken = Boolean(localStorage.getItem('token'));
+      
+      // If guest session exists, don't try to refresh - just reject and let caller handle
+      if (hasGuestSession && !hasToken) {
+        return Promise.reject(error);
+      }
+
       if (isRefreshing) {
         // If already refreshing, queue this request
         return new Promise((resolve, reject) => {
           failedQueue.push({ resolve, reject });
         })
           .then((token) => {
-            originalRequest.headers.Authorization = `Bearer ${token}`;
+            const headers = originalRequest.headers as AxiosRequestHeaders | undefined;
+            if (headers) headers.Authorization = `Bearer ${token}`;
+            else originalRequest.headers = { Authorization: `Bearer ${token}` } as unknown as AxiosRequestHeaders;
             return apiClient(originalRequest);
           })
           .catch((err) => {
@@ -89,8 +126,12 @@ apiClient.interceptors.response.use(
         window.dispatchEvent(new Event('tokenRefreshed'));
 
         // Update default header
-        apiClient.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-        originalRequest.headers.Authorization = `Bearer ${access_token}`;
+  apiClient.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+    if (originalRequest.headers) {
+    const headers = originalRequest.headers as AxiosRequestHeaders | undefined;
+    if (headers) headers.Authorization = `Bearer ${access_token}`;
+    else originalRequest.headers = { Authorization: `Bearer ${access_token}` } as unknown as AxiosRequestHeaders;
+  }
 
         // Process queued requests
         processQueue(null, access_token);

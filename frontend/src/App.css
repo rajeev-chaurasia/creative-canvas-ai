@@ -143,6 +143,17 @@
   transform: translateX(4px);
 }
 
+/* Guest badge shown in the nav when a guest session exists */
+.guest-badge {
+  background: linear-gradient(90deg, rgba(99,102,241,0.12), rgba(139,92,246,0.08));
+  color: var(--text-primary);
+  border: 1px solid rgba(99,102,241,0.12);
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-lg);
+  font-weight: 700;
+  margin-right: var(--space-md);
+}
+
 /* Responsive Navigation */
 @media (max-width: 768px) {
   .app-nav {

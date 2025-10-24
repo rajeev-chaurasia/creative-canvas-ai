@@ -1,5 +1,16 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import apiClient from '../services/api';
+import axios from 'axios';
+
+function getAxiosErrorDetail(err: unknown): string | null {
+  if (!axios.isAxiosError(err)) return null;
+  const data = err.response?.data as unknown;
+  if (data && typeof data === 'object' && 'detail' in (data as Record<string, unknown>)) {
+    const detail = (data as Record<string, unknown>)['detail'];
+    if (typeof detail === 'string') return detail;
+  }
+  return null;
+}
 import './ShareModal.css';
 
 interface ShareModalProps {
@@ -36,6 +47,37 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
+  const loadShares = useCallback(async () => {
+    try {
+      const response = await apiClient.get(`/api/projects/${projectUuid}/shares`);
+      setUsers(response.data.users || []);
+      setPendingInvites(response.data.pending_invites || []);
+    } catch (error) {
+      // If 401, it means user is not authenticated - shouldn't happen if this modal is only shown for authenticated users
+      // Just log and continue with empty shares
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        console.warn('Unauthorized to load shares - user may have lost session');
+        setUsers([]);
+        setPendingInvites([]);
+      } else {
+        console.error('Failed to load shares', error);
+      }
+    }
+  }, [projectUuid]);
+
+  const handleClose = useCallback(() => {
+    // restore focus to opener after modal closes
+    try {
+      onClose();
+    } finally {
+      // schedule focus restore after unmount
+      setTimeout(() => {
+        if (openerRef.current && typeof openerRef.current.focus === 'function') {
+          openerRef.current.focus();
+        }
+      }, 0);
+    }
+  }, [onClose]);
 
   useEffect(() => {
     // remember opener so we can restore focus when modal closes
@@ -49,7 +91,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [projectUuid]);
+  }, [projectUuid, loadShares, handleClose]);
 
   // focus the first focusable element when modal opens and trap focus
   useEffect(() => {
@@ -85,15 +127,7 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
     return () => container.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const loadShares = async () => {
-    try {
-      const response = await apiClient.get(`/api/projects/${projectUuid}/shares`);
-      setUsers(response.data.users || []);
-      setPendingInvites(response.data.pending_invites || []);
-    } catch (error) {
-      console.error('Failed to load shares', error);
-    }
-  };
+  
 
   const handleShare = async () => {
     if (!email.trim()) {
@@ -110,26 +144,16 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
       setStatusMessage(response.data.message || 'Invite sent');
       setEmail('');
       loadShares();
-    } catch (error: any) {
-      setStatusMessage(error.response?.data?.detail || 'Failed to share project');
+    } catch (error: unknown) {
+      // Safely extract message from axios-like error objects without using `any`
+      const msg = getAxiosErrorDetail(error);
+      setStatusMessage(msg || 'Failed to share project');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleClose = () => {
-    // restore focus to opener after modal closes
-    try {
-      onClose();
-    } finally {
-      // schedule focus restore after unmount
-      setTimeout(() => {
-        if (openerRef.current && typeof openerRef.current.focus === 'function') {
-          openerRef.current.focus();
-        }
-      }, 0);
-    }
-  };
+  
 
   const handleRemoveUser = async (userId: number, userName: string) => {
     if (!confirm(`Remove ${userName} from this project?`)) return;
@@ -138,8 +162,9 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
       await apiClient.delete(`/api/projects/${projectUuid}/shares/${userId}`);
       setStatusMessage('User removed successfully');
       loadShares();
-    } catch (error: any) {
-      setStatusMessage(error.response?.data?.detail || 'Failed to remove user');
+    } catch (error: unknown) {
+      const msg = getAxiosErrorDetail(error);
+      setStatusMessage(msg || 'Failed to remove user');
     }
   };
 
@@ -150,8 +175,9 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
       });
   setStatusMessage('Role updated successfully');
   loadShares();
-    } catch (error: any) {
-      setStatusMessage(error.response?.data?.detail || 'Failed to update role');
+    } catch (error: unknown) {
+      const msg = getAxiosErrorDetail(error);
+      setStatusMessage(msg || 'Failed to update role');
     }
   };
 
@@ -163,8 +189,9 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
       const publicShareUrl = `${window.location.origin}/canvas/${projectUuid}?share_token=${token}`;
       setPublicLink(publicShareUrl);
       setStatusMessage('Public link generated! Anyone with this link can view the project.');
-    } catch (error: any) {
-      setStatusMessage(error.response?.data?.detail || 'Failed to generate public link');
+    } catch (error: unknown) {
+      const msg = getAxiosErrorDetail(error);
+      setStatusMessage(msg || 'Failed to generate public link');
     } finally {
       setIsGeneratingLink(false);
     }
@@ -179,8 +206,9 @@ const ShareModal: React.FC<ShareModalProps> = ({ projectUuid, projectTitle, onCl
       await apiClient.post(`/api/projects/${projectUuid}/disable-link`);
       setPublicLink(null);
       setStatusMessage('Public link has been disabled');
-    } catch (error: any) {
-      setStatusMessage(error.response?.data?.detail || 'Failed to disable public link');
+    } catch (error: unknown) {
+      const msg = getAxiosErrorDetail(error);
+      setStatusMessage(msg || 'Failed to disable public link');
     }
   };
 

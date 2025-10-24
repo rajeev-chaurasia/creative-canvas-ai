@@ -40,7 +40,11 @@ class Project(Base):
     uuid = Column(String(36), unique=True, index=True, nullable=False, default=lambda: str(uuid.uuid4()))
     title = Column(String(255), index=True)
     canvas_state = Column(JSON)
-    owner_id = Column(Integer, ForeignKey("users.id"))
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    # Guest-related fields: if a project was created by an unauthenticated guest
+    # it will have `guest_id` set and `owner_id` will be null until claimed.
+    guest_id = Column(String(64), nullable=True, index=True)
+    guest_expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
     public_share_token = Column(String(64), unique=True, nullable=True, index=True)

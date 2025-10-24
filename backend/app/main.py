@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import socketio
 import os
 from dotenv import load_dotenv
-from .routers import auth, projects, sharing, ai, export_pdf, public
+from .routers import auth, projects, sharing, ai, export_pdf, public, guest
 from .database import engine, Base
 from .socket_handler import sio
 
@@ -35,6 +35,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(projects.router)
+app.include_router(guest.router)
 app.include_router(sharing.router)
 app.include_router(ai.router)
 app.include_router(export_pdf.router)

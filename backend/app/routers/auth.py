@@ -9,6 +9,7 @@ from google.auth.transport import requests as google_requests
 
 
 from .. import crud, schemas, models
+import urllib.parse
 from ..database import get_db
 import os
 
@@ -64,11 +65,14 @@ def create_refresh_token(data: dict):
     return encoded_jwt
 
 @router.get("/google")
-async def login_google():
-    return RedirectResponse(url=f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={GOOGLE_CLIENT_ID}&redirect_uri={GOOGLE_REDIRECT_URI}&scope=openid%20email%20profile")
+async def login_google(popup: bool = False):
+    # Support popup flow by encoding a state that will be returned by Google
+    state = 'popup' if popup else ''
+    state_param = f"&state={state}" if state else ''
+    return RedirectResponse(url=f"https://accounts.google.com/o/oauth2/v2/auth?response_type=code&client_id={GOOGLE_CLIENT_ID}&redirect_uri={GOOGLE_REDIRECT_URI}&scope=openid%20email%20profile{state_param}")
 
 @router.get("/google/callback")
-async def auth_google_callback(code: str, db: Session = Depends(get_db)):
+async def auth_google_callback(code: str, state: str | None = None, db: Session = Depends(get_db)):
     token_url = "https://oauth2.googleapis.com/token"
     data = {
         "code": code,
@@ -101,8 +105,13 @@ async def auth_google_callback(code: str, db: Session = Depends(get_db)):
     refresh_token = create_refresh_token(data={"sub": user.email, "user_id": user.id})
     
     # Redirect to the frontend with both tokens
+    # URL-encode tokens to ensure special characters don't break the query string
     frontend_base = FRONTEND_URL.rstrip('/')
-    return RedirectResponse(url=f"{frontend_base}/auth/callback?token={access_token}&refresh_token={refresh_token}")
+    encoded_token = urllib.parse.quote_plus(access_token)
+    encoded_refresh = urllib.parse.quote_plus(refresh_token)
+    # Choose redirect target: popup receiver posts tokens back to opener and closes the popup
+    target_path = '/auth/popup' if state == 'popup' else '/auth/receive'
+    return RedirectResponse(url=f"{frontend_base}{target_path}?token={encoded_token}&refresh_token={encoded_refresh}")
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(

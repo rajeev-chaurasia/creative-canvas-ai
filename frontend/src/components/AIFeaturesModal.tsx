@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import './AIFeaturesModal.css';
 
 interface AIFeaturesModalProps {
@@ -48,6 +48,15 @@ const AIFeaturesModal: React.FC<AIFeaturesModalProps> = ({
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
+  const handleClose = useCallback(() => {
+    onClose();
+    // Restore focus to opener
+    setTimeout(() => {
+      if (openerRef.current?.focus) {
+        openerRef.current.focus();
+      }
+    }, 0);
+  }, [onClose]);
 
   // Focus management
   useEffect(() => {
@@ -59,7 +68,7 @@ const AIFeaturesModal: React.FC<AIFeaturesModalProps> = ({
         firstButton?.focus();
       }, 0);
     }
-  }, [isOpen]);
+  }, [isOpen, handleClose]);
 
   // Close on Escape
   useEffect(() => {
@@ -73,17 +82,9 @@ const AIFeaturesModal: React.FC<AIFeaturesModalProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen]);
+  }, [isOpen, handleClose]);
 
-  const handleClose = () => {
-    onClose();
-    // Restore focus to opener
-    setTimeout(() => {
-      if (openerRef.current?.focus) {
-        openerRef.current.focus();
-      }
-    }, 0);
-  };
+  
 
   if (!isOpen) return null;
 

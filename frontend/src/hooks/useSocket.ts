@@ -61,7 +61,7 @@ export const useSocket = (projectUuid: string) => {
       console.debug('Disconnected from Socket.IO server');
     });
 
-    socket.on('error', (error: any) => {
+    socket.on('error', (error: unknown) => {
       console.error('⚠️ WebSocket error:', error);
     });
 
