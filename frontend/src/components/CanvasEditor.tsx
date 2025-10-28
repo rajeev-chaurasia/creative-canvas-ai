@@ -1169,7 +1169,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
 
       // Call public export endpoint
       const response = await fetch(
-        `${import.meta.env.VITE_API_BASE || 'http://localhost:8000'}/api/public/projects/${projectUuid}/export?share_token=${encodeURIComponent(shareToken)}&format=json`
+        `${import.meta.env.API_PATH || 'http://localhost:8000'}/api/public/projects/${projectUuid}/export?share_token=${encodeURIComponent(shareToken)}&format=json`
       );
 
       if (!response.ok) {
@@ -3365,7 +3365,7 @@ const CanvasEditor = ({ projectUuid }: CanvasEditorProps) => {
                     canvas_path: window.location.pathname
                   }));
                   // Redirect to Google OAuth
-                  window.location.href = `${import.meta.env.VITE_API_BASE || 'http://localhost:8000'}/auth/google`; 
+                  window.location.href = `${import.meta.env.API_PATH || 'http://localhost:8000'}/auth/google`; 
                 }}
               >
                 Sign in with Google
