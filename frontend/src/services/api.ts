@@ -1,9 +1,8 @@
 import axios from 'axios';
 import type { AxiosError, AxiosRequestConfig, AxiosRequestHeaders } from 'axios';
 
-// Read API base from env. Vite exposes import.meta.env.API_PATH via vite.config.ts
-const env = (import.meta as unknown as { env?: { API_PATH?: string } }).env;
-export const API_BASE = env?.API_PATH || 'http://localhost:8000';
+// Read API base from env. Vite exposes VITE_* vars automatically
+export const API_BASE = import.meta.env.VITE_API_PATH || 'http://localhost:8000';
 
 const apiClient = axios.create({
   baseURL: API_BASE,
