@@ -33,8 +33,7 @@ const LoginPage = () => {
 
   const handleLogin = () => {
     // Open auth in a popup and use postMessage to receive tokens securely
-    const meta = import.meta as unknown as { env?: { API_PATH?: string } };
-    const base = meta.env?.API_PATH || 'http://localhost:8000';
+    const base = import.meta.env.VITE_API_PATH || 'http://localhost:8000';
     const url = `${base}/auth/google?popup=1`;
     popupRef.current = window.open(url, 'CanvasAIAuth', 'width=500,height=700');
     // Fallback: if popup blocked, redirect in same tab
